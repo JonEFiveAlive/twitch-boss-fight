@@ -1,0 +1,1502 @@
+/* === FF-style Boss Fight Overlay — side-view battle layout === */
+
+* {
+  box-sizing: border-box;
+}
+
+/* Elements with their own `display` (flex panels, the queue strip) would otherwise
+   ignore the hidden attribute. */
+[hidden] {
+  display: none !important;
+}
+
+:root {
+  --bg:           #07071a;
+  --panel-dark:   #0c0c28;
+  --panel-mid:    #10103a;
+  --border:       #5a5ab0;
+  --border-inner: #14144e;
+  --gold:         #d4a854;
+  --text:         #e8e8f8;
+  --text-dim:     #8888b8;
+  --red:          #e83b3b;
+  --green:        #3ddc3d;
+  --tank:         #b9c2d6;
+  --mage:         #c3a6ff;
+  --cleric:       #7dffb0;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background:
+    radial-gradient(ellipse at 18% 22%, rgba(35, 15, 70, 0.5) 0%, transparent 52%),
+    radial-gradient(ellipse at 82% 78%, rgba(10, 20, 65, 0.5) 0%, transparent 52%),
+    linear-gradient(160deg, #07071a 0%, #0b0b28 55%, #08082a 100%);
+  color: var(--text);
+  overflow: hidden;
+  font-family: 'VT323', 'Courier New', monospace;
+}
+
+/* Subtle scanline texture */
+html::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0, 0, 0, 0.07) 3px,
+    rgba(0, 0, 0, 0.07) 4px
+  );
+  pointer-events: none;
+  z-index: 999;
+}
+
+#arena {
+  width: 1280px;
+  height: 720px;
+  position: relative;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ─── Shared panel style ─────────────────────────────────────────────────── */
+
+.panel,
+.intent {
+  border: 2px solid var(--border);
+  box-shadow:
+    0 0 0 1px #000,
+    inset 0 0 0 1px var(--border-inner),
+    0 6px 18px rgba(0, 0, 0, 0.65);
+  background: linear-gradient(180deg, var(--panel-dark) 0%, var(--panel-mid) 100%);
+  border-radius: 4px;
+}
+
+/* ─── Top bar ────────────────────────────────────────────────────────────── */
+
+#topBar {
+  flex: 0 0 52px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 16px;
+}
+
+#phaseMessage {
+  font-size: 26px;
+  letter-spacing: 1px;
+  text-shadow: 2px 2px 0 #000;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#topRight {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 0 0 auto;
+}
+
+#lockedCount {
+  font-size: 20px;
+  color: var(--text-dim);
+}
+
+#timer {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 26px;
+  min-width: 80px;
+  text-align: center;
+  text-shadow: 3px 3px 0 #000;
+  transition: color 0.3s ease, transform 0.15s ease;
+}
+
+.timer-green  { color: var(--green); }
+.timer-red    { color: var(--red); transform: scale(1.12); }
+.timer-battle { color: var(--gold); font-size: 20px; letter-spacing: 2px; }
+.timer-paused { color: #ffd0a0; font-size: 20px; letter-spacing: 2px; animation: paused-pulse 1.6s ease-in-out infinite alternate; }
+@keyframes paused-pulse { from { opacity: 1; } to { opacity: 0.45; } }
+
+/* ─── Battlefield ────────────────────────────────────────────────────────── */
+
+#battlefield {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+#floor {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 120px;
+  border-top: 1px solid rgba(90, 90, 176, 0.35);
+  background: linear-gradient(180deg, rgba(90, 90, 176, 0.14), rgba(90, 90, 176, 0));
+}
+
+#bossBlock {
+  position: absolute;
+  left: 24px;
+  top: 0;
+  width: 500px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+#bossName {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 13px;
+  color: var(--gold);
+  letter-spacing: 3px;
+  text-shadow: 2px 2px 0 #000, 0 0 14px rgba(212, 168, 84, 0.45);
+}
+
+#bossHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#enragedChip {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  padding: 5px 7px;
+  color: #ffb3b3;
+  border: 1px solid var(--red);
+  background: rgba(232, 59, 59, 0.18);
+  border-radius: 2px;
+  animation: enraged-blink 1s ease-in-out infinite;
+}
+
+@keyframes enraged-blink {
+  0%, 100% { box-shadow: 0 0 4px rgba(232, 59, 59, 0.4); }
+  50%      { box-shadow: 0 0 12px rgba(232, 59, 59, 0.9); }
+}
+
+#bossHpRow {
+  width: 460px;
+}
+
+.hp-bar-wrap {
+  height: 28px;
+  background: #040410;
+  border: 2px solid #3a3a80;
+  border-radius: 2px;
+  overflow: hidden;
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.85);
+  position: relative;
+}
+
+.hp-bar-fill {
+  height: 100%;
+  background: linear-gradient(180deg, #ef4444 0%, #b91c1c 55%, #7f1d1d 100%);
+  transition: width 0.4s ease;
+  position: relative;
+}
+
+.hp-bar-fill::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 45%;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.hp-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  font-size: 22px;
+  letter-spacing: 2px;
+  color: #fff;
+  text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+  white-space: nowrap;
+  pointer-events: none;
+  line-height: 1;
+}
+
+#bossMoveLabel {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  color: #ffcf6b;
+  min-height: 12px;
+  white-space: nowrap;
+  text-shadow: 2px 2px 0 #000;
+}
+
+#bossSprite {
+  margin: 4px 0 0 70px;
+  filter: drop-shadow(0 0 12px rgba(79, 163, 217, 0.55));
+}
+
+#bossSprite svg {
+  display: block;
+}
+
+/* ─── Party units on the battlefield ─────────────────────────────────────── */
+
+/* Bottom 34px is reserved for the PARTY / QUEUE strip so 10-player formations
+   never run underneath it. */
+#partyField {
+  position: absolute;
+  left: 560px;
+  right: 0;
+  top: 0;
+  bottom: 34px;
+}
+
+#queueStrip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  max-width: 680px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  font-size: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.q-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: var(--text-dim);
+}
+
+.q-name { color: var(--gold); }
+.q-hint { color: #9cc8ff; }
+.q-sep  { color: var(--text-dim); }
+
+.unit {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transition: left 0.3s ease, top 0.3s ease;
+}
+
+.unit.small { gap: 3px; }
+.unit.fallen { opacity: 0.5; }
+
+.intent {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: 18px;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 0 0 1px #000, inset 0 0 0 1px var(--border-inner);
+}
+
+.intent.empty { visibility: hidden; }
+.unit.small .intent { font-size: 15px; padding: 2px 6px; gap: 4px; }
+
+.unit-sprite {
+  position: relative;
+}
+
+.unit-sprite svg {
+  position: relative;
+  display: block;
+}
+
+/* Glow behind the sprite: blue while defending, red while taunting. */
+.aura {
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.unit.anim-shielded .aura {
+  background: rgba(80, 150, 255, 0.14);
+  animation: shield-glow 1.1s ease-in-out infinite;
+}
+
+.unit.anim-taunting .aura {
+  animation: taunt-glow 1.1s ease-in-out infinite;
+}
+
+/* Red corner brackets around the player Frost Breath is aimed at. */
+.reticle {
+  position: absolute;
+  inset: -8px;
+  pointer-events: none;
+}
+
+.reticle i {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 0 solid #ff4444;
+  filter: drop-shadow(0 0 3px rgba(255, 68, 68, 0.8));
+}
+
+.reticle i:nth-child(1) { left: 0;  top: 0;    border-left-width: 3px;  border-top-width: 3px; }
+.reticle i:nth-child(2) { right: 0; top: 0;    border-right-width: 3px; border-top-width: 3px; }
+.reticle i:nth-child(3) { left: 0;  bottom: 0; border-left-width: 3px;  border-bottom-width: 3px; }
+.reticle i:nth-child(4) { right: 0; bottom: 0; border-right-width: 3px; border-bottom-width: 3px; }
+
+.heal-target-badge {
+  position: absolute;
+  top: -4px;
+  right: -18px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 14px;
+  color: #44ff88;
+  text-shadow: 0 0 8px rgba(68, 255, 136, 0.9), 2px 2px 0 #000;
+  line-height: 1;
+}
+
+.unit-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 150px;
+  font-size: 20px;
+  color: var(--gold);
+  text-shadow: 1px 1px 0 #000;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.unit-name .name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.unit.small .unit-name { font-size: 17px; max-width: 120px; }
+.unit.fallen .unit-name { color: var(--text-dim); }
+
+.slot {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: var(--text-dim);
+  flex: 0 0 auto;
+}
+
+/* ─── Post-fight results screen (replaces battlefield + bottom row) ───────── */
+
+#resultsScreen {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rs-banner {
+  flex: 0 0 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.results-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 32px;
+  letter-spacing: 6px;
+  text-shadow: 3px 3px 0 #000, 0 0 22px currentColor;
+}
+
+.results-title.win  { color: #ffd76a; }
+.results-title.loss { color: #ff6b6b; }
+
+.results-sub {
+  font-size: 22px;
+  text-shadow: 1px 1px 0 #000;
+}
+
+.rs-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+}
+
+.rs-loot {
+  flex: 0 0 470px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.rs-stats {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.rs-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+.rs-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  color: var(--gold);
+}
+
+.rs-note {
+  font-size: 18px;
+  color: var(--text-dim);
+}
+
+.loot-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  border: 1px solid #3a3a80;
+  background: #0a0a22;
+  border-radius: 3px;
+}
+
+.loot-icon {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  box-sizing: border-box;
+  border: 2px solid currentColor;
+  background: #040410;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 10px -2px currentColor;
+}
+
+.loot-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1;
+}
+
+.loot-name {
+  font-size: 22px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.loot-stat { font-size: 18px; color: #7dffb0; }
+
+.loot-who {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  line-height: 1;
+  font-size: 20px;
+  color: var(--gold);
+  white-space: nowrap;
+}
+
+.loot-empty {
+  margin: auto 0;
+  text-align: center;
+  font-size: 20px;
+  color: var(--text-dim);
+}
+
+.equipped {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: #7dffb0;
+}
+
+/* Item rarity colors (text and icon frames) — sprites use darker tones from sprites.js. */
+.rarity-common   { color: #c8c8d8; }
+.rarity-uncommon { color: #5fd35f; }
+.rarity-rare     { color: #5aa0ff; }
+.rarity-epic     { color: #c77dff; text-shadow: 0 0 8px rgba(199, 125, 255, 0.6); }
+
+.results-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 64px 60px 60px 52px 36px 52px 52px 92px;
+  gap: 8px;
+  align-items: center;
+  height: 28px;
+  font-size: 20px;
+}
+
+.results-row.head {
+  height: 20px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--text-dim);
+  border-bottom: 1px solid #2a2a6a;
+}
+
+.results-row .num   { text-align: right; }
+.results-row .xp    { text-align: right; color: #7dffb0; }
+.results-row.left   { color: var(--text-dim); }
+
+.results-more {
+  font-size: 18px;
+  color: var(--text-dim);
+}
+
+.rs-badges {
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.badge {
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.badge-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+}
+
+.badge-name {
+  font-size: 20px;
+  color: var(--gold);
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rs-strip {
+  flex: 0 0 56px;
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  font-size: 21px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.level-up {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  color: #ffd76a;
+  margin-right: 12px;
+  text-shadow: 0 0 8px rgba(255, 215, 106, 0.7);
+}
+
+.next-lobby {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  color: var(--green);
+}
+
+/* ─── Lobby screen (replaces battlefield + bottom row) ──────────────────────── */
+
+#modeChip {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  padding: 5px 8px;
+  color: var(--gold);
+  border: 1px solid var(--gold);
+  border-radius: 2px;
+}
+
+#lobbyScreen {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lobby-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+}
+
+.class-card {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cc-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cc-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 13px;
+  text-shadow: 2px 2px 0 #000;
+}
+
+.cc-role {
+  font-size: 20px;
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+
+.cmd {
+  align-self: flex-start;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  color: var(--gold);
+  background: #040410;
+  border: 1px solid #3a3a80;
+  border-radius: 2px;
+  padding: 6px 8px;
+}
+
+.cc-stats {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  row-gap: 6px;
+  align-items: center;
+  font-size: 18px;
+  color: var(--text-dim);
+}
+
+.pips {
+  display: flex;
+  gap: 3px;
+}
+
+.pip {
+  width: 12px;
+  height: 10px;
+  background: #23234f;
+  border: 1px solid #000;
+}
+
+.cc-skills {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 19px;
+  line-height: 1.1;
+}
+
+.cc-joined {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid #2a2a6a;
+  font-size: 18px;
+  color: var(--text-dim);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+}
+
+.cc-joined .who { color: var(--gold); }
+
+.lobby-side {
+  flex: 0 0 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lobby-boss {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.lb-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: var(--text-dim);
+}
+
+.lb-name {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  color: var(--gold);
+  letter-spacing: 1px;
+  text-shadow: 2px 2px 0 #000;
+}
+
+.lb-sprite svg { display: block; filter: drop-shadow(0 0 10px rgba(79, 163, 217, 0.5)); }
+.lobby-boss { gap: 6px; padding-block: 10px; }
+
+.variant-meter {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.vm {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 6px;
+  padding: 6px 0;
+  text-align: center;
+  background: #14143a;
+  color: #9090c0;
+  border: 1px solid #2a2a6a;
+}
+
+.vm.active.lesser   { color: #c8ffd8; border-color: #7dffb0; background: rgba(125, 255, 176, 0.14); }
+.vm.active.standard { color: #e6dcff; border-color: #c3a6ff; background: rgba(195, 166, 255, 0.16); }
+.vm.active.powerful { color: #ffd0a0; border-color: #ff8a3d; background: rgba(255, 138, 61, 0.16); }
+
+.lb-hp   { font-size: 19px; line-height: 1.1; }
+.lb-hint { font-size: 17px; line-height: 1.1; color: var(--text-dim); }
+
+.lobby-board {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  overflow: hidden;
+}
+
+.lobby-board p {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.05;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lobby-roster {
+  flex: 0 0 168px;
+  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.roster-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.roster-cell {
+  position: relative;
+  min-width: 0;
+  border: 1px solid #3a3a80;
+  background: #0a0a22;
+  border-radius: 3px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 4px;
+}
+
+.roster-cell.open {
+  border-style: dashed;
+  background: transparent;
+}
+
+.roster-cell .slot {
+  position: absolute;
+  left: 5px;
+  top: 5px;
+}
+
+.roster-name {
+  max-width: 100%;
+  font-size: 17px;
+  color: var(--gold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1;
+}
+
+.roster-open {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: #9090c0;
+}
+
+/* ─── Bottom row: combat log + party status window ───────────────────────── */
+
+/* Fixed height: content that doesn't fit is clipped rather than squeezing the battlefield. */
+#bottomRow {
+  flex: 0 0 196px;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+}
+
+#bottomRow > .panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+#combatLog {
+  flex: 0 0 470px;
+  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.log-title,
+.status-head {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--text-dim);
+}
+
+.log-title { margin-bottom: 4px; }
+
+/* Newest lines stay pinned to the bottom; if wrapped lines overflow, the oldest
+   are clipped at the top. */
+.log-lines {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 3px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 16px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 16px);
+}
+
+#combatLog p {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.05;
+  text-shadow: 1px 1px 0 #000;
+}
+
+#combatLog p::before {
+  content: "▶ ";
+  color: var(--gold);
+}
+
+#statusWindow {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.status-head,
+.status-row {
+  display: grid;
+  grid-template-columns: 14px 24px minmax(0, 1fr) 100px 176px 136px 108px;
+  gap: 10px;
+  align-items: center;
+}
+
+.status-head {
+  padding-bottom: 6px;
+  border-bottom: 1px solid #2a2a6a;
+}
+
+.status-row {
+  height: 28px;
+  font-size: 20px;
+}
+
+.status-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* More than 5 players: two columns of compact rows (HP and MP bars stacked),
+   filled top-to-bottom so slots 1-5 are on the left. */
+.status-grid.compact {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(5, auto);
+  grid-auto-flow: column;
+  column-gap: 18px;
+  row-gap: 2px;
+}
+
+.status-grid.compact .status-row {
+  grid-template-columns: 14px 22px minmax(0, 1fr) 24px 112px 18px;
+  gap: 7px;
+  height: 31px;
+  font-size: 18px;
+  overflow: hidden;
+}
+
+.status-row.fallen { color: var(--text-dim); }
+
+.s-name {
+  color: var(--gold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-row.fallen .s-name { color: var(--text-dim); }
+
+.s-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  display: block;
+}
+
+.s-class {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  white-space: nowrap;
+}
+
+/* Level number shown beside a class label ("TANK 7") or name. */
+.s-lv {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--text);
+  margin-left: 4px;
+}
+
+.class-tank   { color: var(--tank); }
+.class-mage   { color: var(--mage); }
+.class-cleric { color: var(--cleric); }
+
+.s-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.s-bars-stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.s-bars-stacked .s-bar { gap: 6px; font-size: 14px; line-height: 13px; }
+.s-bars-stacked .mini-bar { height: 9px; }
+.s-bars-stacked .mini-bar.mp { height: 6px; }
+
+.mini-bar {
+  flex: 0 0 auto;
+  height: 12px;
+  background: #040410;
+  border: 1px solid #3a3a80;
+  border-radius: 1px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.85);
+}
+
+.mini-bar.mp { height: 8px; }
+
+.mini-fill {
+  height: 100%;
+  transition: width 0.4s ease;
+}
+
+.f-hp   { background: linear-gradient(180deg, #4ade4a 0%, #16a34a 55%, #166534 100%); }
+.f-low  { background: linear-gradient(180deg, #facc15 0%, #b45309 55%, #78350f 100%); }
+.f-crit { background: linear-gradient(180deg, #ef4444 0%, #b91c1c 55%, #7f1d1d 100%); }
+.f-mp   { background: linear-gradient(180deg, #7cc4ff 0%, #2f6fd6 55%, #1e3f8a 100%); }
+
+.hp-crit-text { color: #ff7b7b; }
+.mp-text { color: #7cc4ff; }
+
+.s-intent {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+/* ─── Floating damage numbers ────────────────────────────────────────────── */
+
+.floating-number {
+  position: absolute;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 16px;
+  text-shadow: 2px 2px 0 #000, -1px -1px 0 #000;
+  pointer-events: none;
+  transform: translateX(-50%);
+  animation: float-up 1.3s ease-out forwards;
+  z-index: 100;
+  white-space: nowrap;
+}
+
+@keyframes float-up {
+  0%   { opacity: 1; transform: translateX(-50%) translateY(0)    scale(1.3); }
+  15%  { opacity: 1; transform: translateX(-50%) translateY(-12px) scale(1.5); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-70px) scale(0.9); }
+}
+
+/* ─── Player / boss animations ───────────────────────────────────────────── */
+
+@keyframes unit-enter {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes action-bounce {
+  0%   { transform: scale(1)   translateY(0); }
+  35%  { transform: scale(1.4) translateY(-6px); }
+  65%  { transform: scale(0.9) translateY(2px); }
+  100% { transform: scale(1)   translateY(0); }
+}
+
+/* Players face left, so they lunge toward the boss. */
+@keyframes lunge {
+  0%   { transform: translateX(0); }
+  35%  { transform: translateX(-26px); }
+  100% { transform: translateX(0); }
+}
+
+@keyframes shield-glow {
+  0%, 100% { box-shadow: 0 0 14px 5px rgba(80, 150, 255, 0.5); }
+  50%      { box-shadow: 0 0 24px 9px rgba(80, 150, 255, 0.9); }
+}
+
+@keyframes taunt-glow {
+  0%, 100% { box-shadow: 0 0 14px 5px rgba(232, 59, 59, 0.5); }
+  50%      { box-shadow: 0 0 24px 9px rgba(232, 59, 59, 0.9); }
+}
+
+@keyframes damage-flash {
+  0%   { filter: brightness(2) drop-shadow(0 0 6px #ff3030); transform: translateX(5px); }
+  25%  { transform: translateX(-5px); }
+  50%  { filter: brightness(1.4) drop-shadow(0 0 4px #ff3030); transform: translateX(3px); }
+  100% { filter: none; transform: translateX(0); }
+}
+
+@keyframes heal-flash {
+  0%   { filter: brightness(1.6) drop-shadow(0 0 10px #44ff88); }
+  100% { filter: none; }
+}
+
+@keyframes boss-shake {
+  0%, 100% { transform: translateX(0); }
+  20%       { transform: translateX(-14px); }
+  45%       { transform: translateX(14px); }
+  65%       { transform: translateX(-9px); }
+  85%       { transform: translateX(9px); }
+}
+
+/* The boss faces right, so its attacks lunge toward the party. */
+@keyframes boss-attack {
+  0%   { transform: translateX(0) scale(1); }
+  25%  { transform: translateX(-10px) scale(0.95); }
+  60%  { transform: translateX(48px) scale(1.04); }
+  100% { transform: translateX(0) scale(1); }
+}
+
+@keyframes boss-power-attack {
+  0%   { transform: translateX(0) scale(1);        filter: brightness(1); }
+  20%  { transform: translateX(-16px) scale(0.9);  filter: brightness(1); }
+  55%  { transform: translateX(70px) scale(1.1);   filter: brightness(2.2); }
+  100% { transform: translateX(0) scale(1);        filter: brightness(1); }
+}
+
+@keyframes boss-blizzard {
+  0%   { filter: brightness(1); transform: scale(1); }
+  40%  { filter: brightness(1.8) drop-shadow(0 0 22px #bfe6ff); transform: scale(1.06); }
+  100% { filter: brightness(1); transform: scale(1); }
+}
+
+@keyframes boss-enrage {
+  0%, 100% { filter: brightness(1); transform: scale(1); }
+  30%      { filter: brightness(1.6) sepia(1) saturate(6) hue-rotate(-40deg) drop-shadow(0 0 18px #ff2222); transform: scale(1.1); }
+  60%      { filter: brightness(1.3) sepia(1) saturate(6) hue-rotate(-40deg) drop-shadow(0 0 12px #ff2222); transform: scale(1.04); }
+}
+
+@keyframes boss-counter {
+  0%   { filter: brightness(1); }
+  35%  { filter: brightness(2.5) drop-shadow(0 0 14px #ff2222); }
+  100% { filter: brightness(1); }
+}
+
+@keyframes boss-windup {
+  0%   { transform: scale(1) rotate(0deg);     filter: brightness(1); }
+  40%  { transform: scale(1.08) rotate(-4deg); filter: brightness(1.4) drop-shadow(0 0 12px #ffcc00); }
+  70%  { transform: scale(1.05) rotate(3deg);  filter: brightness(1.7) drop-shadow(0 0 18px #ffaa00); }
+  100% { transform: scale(1) rotate(0deg);     filter: brightness(1); }
+}
+
+@keyframes boss-pulse {
+  0%, 100% { transform: scale(1);    filter: brightness(1); }
+  50%       { transform: scale(1.05); filter: brightness(1.6) drop-shadow(0 0 10px #ff6600); }
+}
+
+.anim-unit-enter        { animation: unit-enter        0.35s ease-out; }
+.anim-action-bounce     { animation: action-bounce     0.32s ease-out; }
+.anim-lunge             { animation: lunge             0.5s  ease-out; }
+.anim-damage            { animation: damage-flash      0.65s ease-out; }
+.anim-heal              { animation: heal-flash        0.65s ease-out; }
+.anim-boss-shake        { animation: boss-shake        0.5s  ease-out; }
+.anim-boss-attack       { animation: boss-attack       0.55s ease-out; }
+.anim-boss-power-attack { animation: boss-power-attack 0.7s  ease-out; }
+.anim-boss-counter      { animation: boss-counter      0.6s  ease-out; }
+.anim-boss-blizzard     { animation: boss-blizzard     0.7s  ease-out; }
+.anim-boss-enrage       { animation: boss-enrage       0.8s  ease-out; }
+.anim-boss-windup       { animation: boss-windup       0.85s ease-in-out; }
+.anim-boss-pulse        { animation: boss-pulse        1.1s  ease-in-out infinite; }
+
+/* ─── Raids (Phase 7) ──────────────────────────────────────────────────────── */
+
+#modeChip.raid {
+  color: #ff9a5a;
+  border-color: #ff8a3d;
+  background: rgba(255, 138, 61, 0.14);
+  text-shadow: 0 0 8px rgba(255, 138, 61, 0.6);
+}
+
+.results-title.ended { color: #c3a6ff; }
+
+.vote-chip {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  padding: 5px 8px;
+  color: #ffd0a0;
+  border: 1px solid #ff8a3d;
+  background: rgba(255, 138, 61, 0.12);
+  border-radius: 2px;
+}
+
+.vote-chip .cmd-inline { color: var(--gold); }
+
+/* A row of battle nodes: cleared (chest banked), next, failed, or still ahead. */
+.raid-track {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.rt-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 2px;
+  border: 1px solid #2a2a6a;
+  background: #0a0a22;
+  border-radius: 3px;
+  color: var(--text-dim);
+  line-height: 1;
+}
+
+.rt-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 6px;
+}
+
+.rt-icon {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rt-num {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 14px;
+}
+
+.rt-scale { font-size: 15px; }
+
+.rt-node.cleared { border-color: var(--gold); color: var(--gold); background: rgba(212, 168, 84, 0.1); }
+.rt-node.next    { border-color: #ff8a3d; color: #ffd0a0; background: rgba(255, 138, 61, 0.14); box-shadow: 0 0 10px -2px #ff8a3d; }
+.rt-node.failed  { border-color: var(--red); color: #ff6b6b; background: rgba(232, 59, 59, 0.12); }
+
+.raid-track.compact { gap: 4px; }
+.raid-track.compact .rt-node { padding: 3px 0; }
+.raid-track.compact .rt-icon { height: 24px; }
+.raid-track.compact .rt-num  { font-size: 10px; }
+
+.rs-raid { gap: 10px; }
+
+.raid-next {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.raid-chests {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #3a3a80;
+  background: #0a0a22;
+  border-radius: 3px;
+}
+
+.ghost-chest { opacity: 0.25; filter: grayscale(1); }
+
+.bonus-chest {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 12px;
+  color: var(--gold);
+  margin-left: 4px;
+}
+
+.raid-foot { margin-top: auto; }
+
+.chest-row {
+  display: grid;
+  grid-template-columns: 118px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 36px;
+}
+
+.cr-name {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--gold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cr-items {
+  display: flex;
+  gap: 4px;
+}
+
+.loot-icon.small {
+  width: 29px;
+  height: 29px;
+  flex: 0 0 29px;
+  position: relative;
+  box-shadow: none;
+}
+
+/* A green corner tick on chest items that were equipped straight away. */
+.loot-icon.small.is-equipped::after {
+  content: "";
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 7px;
+  height: 7px;
+  background: #7dffb0;
+  border: 1px solid #000;
+}
+
+.lobby-raid { gap: 6px; }
+
+/* ─── Stream controls: last call, standby, closed ──────────────────────────── */
+
+#lastCallChip {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  padding: 5px 8px;
+  color: #ffb3b3;
+  border: 1px solid var(--red);
+  background: rgba(232, 59, 59, 0.14);
+  border-radius: 2px;
+}
+
+.timer-standby { animation: none; font-size: 16px; }
+
+#closedScreen {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.closed-card {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 56px;
+  padding: 24px 40px;
+}
+
+.closed-wyrm {
+  position: relative;
+  filter: saturate(0.45) brightness(0.7);
+}
+
+.closed-wyrm svg { display: block; }
+
+.zzz {
+  position: absolute;
+  top: -6px;
+  right: -18px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 14px;
+  color: #bfe6ff;
+  animation: zzz-float 3s ease-in-out infinite;
+}
+
+.zzz span:nth-child(1) { font-size: 18px; margin-left: 4px; }
+.zzz span:nth-child(2) { font-size: 24px; margin-left: 4px; }
+
+@keyframes zzz-float {
+  0%, 100% { transform: translateY(0); opacity: 0.6; }
+  50%      { transform: translateY(-10px); opacity: 1; }
+}
+
+.closed-text {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.closed-note { font-size: 20px; color: var(--text-dim); }
+
+.closed-board { flex: 0 0 auto; width: 460px; max-width: 100%; }
+
+/* ─── Bosses (Phase 8): biomes, element chips, statuses, tiers ─────────────── */
+
+/* Each boss brings its own backdrop. The default (no data-biome) stays the old night sky. */
+#battlefield { transition: background 0.6s ease; }
+#arena[data-biome="ice"] #battlefield {
+  background:
+    radial-gradient(ellipse at 22% 30%, rgba(120, 190, 255, 0.16) 0%, transparent 55%),
+    linear-gradient(180deg, rgba(20, 50, 90, 0.35) 0%, rgba(10, 20, 50, 0) 70%);
+}
+#arena[data-biome="ice"] #floor {
+  border-top-color: rgba(170, 220, 255, 0.45);
+  background: linear-gradient(180deg, rgba(170, 220, 255, 0.18), rgba(170, 220, 255, 0));
+}
+#arena[data-biome="volcano"] #battlefield {
+  background:
+    radial-gradient(ellipse at 22% 85%, rgba(255, 110, 30, 0.28) 0%, transparent 55%),
+    linear-gradient(180deg, rgba(60, 15, 10, 0.45) 0%, rgba(40, 10, 10, 0) 75%);
+}
+#arena[data-biome="volcano"] #floor {
+  border-top-color: rgba(255, 130, 50, 0.55);
+  background: linear-gradient(180deg, rgba(255, 110, 30, 0.22), rgba(120, 30, 10, 0));
+}
+#arena[data-biome="crypt"] #battlefield {
+  background:
+    radial-gradient(ellipse at 22% 40%, rgba(140, 90, 220, 0.2) 0%, transparent 55%),
+    radial-gradient(ellipse at 75% 90%, rgba(80, 255, 140, 0.07) 0%, transparent 50%),
+    linear-gradient(180deg, rgba(25, 10, 40, 0.5) 0%, rgba(15, 5, 30, 0) 75%);
+}
+#arena[data-biome="crypt"] #floor {
+  border-top-color: rgba(160, 110, 230, 0.45);
+  background: linear-gradient(180deg, rgba(120, 80, 200, 0.18), rgba(60, 30, 100, 0));
+}
+#arena[data-biome="sky"] #battlefield {
+  background:
+    radial-gradient(ellipse at 25% 25%, rgba(255, 240, 120, 0.1) 0%, transparent 45%),
+    linear-gradient(180deg, rgba(40, 55, 90, 0.5) 0%, rgba(25, 35, 60, 0.15) 60%, rgba(10, 15, 30, 0) 100%);
+}
+#arena[data-biome="sky"] #floor {
+  border-top-color: rgba(200, 215, 240, 0.4);
+  background: linear-gradient(180deg, rgba(200, 215, 240, 0.14), rgba(200, 215, 240, 0));
+}
+
+#elementChips, .lb-chips { display: flex; gap: 6px; justify-content: center; }
+
+.el-chip {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  padding: 4px 6px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+.el-chip.weak   { color: #fff0a0; border: 1px solid #d4a854; background: rgba(212, 168, 84, 0.16); }
+.el-chip.resist { color: #b8b8d8; border: 1px solid #6a6aa0; background: rgba(106, 106, 160, 0.16); }
+
+.tier-chip {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  padding: 3px 6px;
+  margin-left: 6px;
+  border-radius: 2px;
+  vertical-align: middle;
+}
+.tier-chip.normal { color: #c8c8e8; border: 1px solid #6a6aa0; }
+.tier-chip.heroic { color: #ffd0a0; border: 1px solid #ff8a3d; background: rgba(255, 138, 61, 0.14); }
+.tier-chip.mythic { color: #f0d0ff; border: 1px solid #c77dff; background: rgba(199, 125, 255, 0.18); text-shadow: 0 0 6px rgba(199, 125, 255, 0.7); }
+
+/* Hex and Chain Lightning get their own reticle colors. */
+.reticle.hex i   { border-color: #c39bff; filter: drop-shadow(0 0 3px rgba(195, 155, 255, 0.9)); }
+.reticle.chain i { border-color: #fff27a; filter: drop-shadow(0 0 3px rgba(255, 242, 122, 0.9)); }
+
+/* Burn / Hex markers above a player's sprite, with rounds left. */
+.status-badges {
+  position: absolute;
+  left: 50%;
+  top: -4px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 3px;
+  pointer-events: none;
+}
+.sb {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  font-size: 15px;
+  line-height: 1;
+  padding: 1px 3px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.55);
+}
+.sb b { font-family: 'Press Start 2P', monospace; font-size: 7px; font-weight: normal; }
+.sb.burn  { color: #ffb070; border: 1px solid rgba(255, 154, 61, 0.7); }
+.sb.curse { color: #d9c2ff; border: 1px solid rgba(195, 155, 255, 0.7); }
+.s-aff { font-size: 15px; }
+
+.rt-boss svg { display: block; }
+.rt-node:not(.next):not(.cleared) .rt-boss { opacity: 0.55; }

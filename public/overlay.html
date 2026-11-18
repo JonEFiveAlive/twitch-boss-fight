@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Twitch Boss Fight Overlay</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="overlay.css" />
+</head>
+<body>
+  <div id="arena">
+
+    <div id="topBar" class="panel">
+      <div id="phaseMessage"></div>
+      <div id="topRight">
+        <span id="lastCallChip" hidden>LAST CALL</span>
+        <span id="modeChip" hidden>SKIRMISH</span>
+        <span id="lockedCount"></span>
+        <div id="timer" class="timer-green"></div>
+      </div>
+    </div>
+
+    <div id="battlefield">
+      <div id="floor"></div>
+
+      <div id="bossBlock">
+        <div id="bossHeader">
+          <span id="bossName">FROST WYRM</span>
+          <span id="elementChips"></span>
+          <span id="enragedChip" hidden>ENRAGED</span>
+        </div>
+        <div id="bossHpRow">
+          <div class="hp-bar-wrap">
+            <div id="bossHpBar" class="hp-bar-fill"></div>
+            <div id="bossHpText" class="hp-text"></div>
+          </div>
+        </div>
+        <div id="bossMoveLabel"></div>
+        <div id="bossSprite"></div>
+      </div>
+
+      <div id="partyField"></div>
+      <div id="queueStrip" class="intent" hidden></div>
+    </div>
+
+    <div id="bottomRow">
+      <div id="combatLog" class="panel"></div>
+      <div id="statusWindow" class="panel"></div>
+    </div>
+
+    <!-- Full-screen alternatives to the battlefield + bottom row (see renderScreens). -->
+    <div id="lobbyScreen" hidden></div>
+    <div id="resultsScreen" hidden></div>
+    <div id="closedScreen" hidden></div>
+
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="sprites.js"></script>
+  <script src="overlay.js"></script>
+</body>
+</html>
