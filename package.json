@@ -2,6 +2,7 @@
   "name": "twitch-boss-fight",
   "version": "0.1.0",
   "description": "A collaborative, round-based Twitch chat boss fight with an OBS overlay",
+  "license": "AGPL-3.0-or-later",
   "main": "src/server.js",
   "type": "commonjs",
   "engines": {

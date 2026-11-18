@@ -334,3 +334,27 @@ scripts/
   `http://localhost:3000/overlay.html`.
 - **Commands aren't registering:** commands are case-insensitive but must start
   the message (`!attack`, `!join mage`, `!startbattle`, ...).
+
+## License
+
+Copyright (C) 2026 JonEFive
+
+This project is free software under the
+[GNU Affero General Public License v3.0 or later](LICENSE). You may use, study,
+change and share it. If you share a modified version, or run one that other
+people interact with over a network (a stream's chat, for example), you must
+make your source available to them under the same license.
+
+The license is chosen mainly as a statement of intent: this project is open,
+and anything built from it should stay open too.
+
+## AI disclosure
+
+This project is built with substantial help from AI. Much of the code,
+documentation and placeholder art was written with Anthropic's Claude (through
+Claude Code), working from the maintainer's design direction, decisions and
+playtesting. Commits with AI involvement carry a `Co-Authored-By: Claude`
+trailer.
+
+That's part of why the source is open: anyone can read exactly what it does,
+check it and build on it.
