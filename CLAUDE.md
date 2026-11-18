@@ -190,9 +190,13 @@ before wiring up OBS — much faster to iterate on.
 - Plain Node.js (CommonJS `require`/`module.exports`), no TypeScript, no build
   step, no framework beyond Express + Socket.IO + tmi.js. Keep it that way
   unless asked to change it — this project deliberately favors simplicity.
-- No test framework is set up yet. When validating game-logic changes to
-  `fight.js`, prefer a quick inline `node -e "..."` simulation (require the
-  module, run a few rounds, log the results) rather than assuming correctness.
+- Tests live in `test/` and run with `npm test` (Node's built-in `node:test`, no
+  extra dependencies). They drive the real game loop with mocked timers
+  (`mock.timers.enable(...)`) and an in-memory store
+  (`openProgressStore(":memory:")`), so the whole suite takes about a second.
+  Each `check(label, ok)` registers its own test. Run `npm test` after any change
+  and add checks for new behavior. For quick experiments, an inline
+  `node -e "..."` simulation is still fine.
 - No linter/formatter configured yet — match the existing style (2-space
   indent, semicolons, double quotes) if adding new files.
 - Never commit `.env` — it holds real Twitch credentials. `.env.example` is the

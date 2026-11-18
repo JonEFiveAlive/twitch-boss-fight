@@ -293,6 +293,9 @@ node scripts/balance-sim.js --raid --only TMC       # raid clear rates
 node scripts/balance-sim.js --set BURN_DAMAGE=10    # try a value without editing the config
 ```
 
+Run the test suite with `npm test`. It plays fights, raids and stream-control
+scenarios through the real game loop in about a second.
+
 ## Project layout
 
 ```
@@ -315,6 +318,7 @@ scripts/
   get-twitch-token.js     one-time OAuth setup
   balance-sim.js          balance simulator
   screenshot.js           headless overlay screenshots (npm run screenshot)
+test/                     npm test: game-loop, raid, boss and stream-control tests
 ```
 
 ## Troubleshooting
