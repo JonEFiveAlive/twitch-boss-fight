@@ -146,7 +146,7 @@ module.exports = {
   // armor adds defense, a cut to incoming boss hits that per-player hit scaling
   // doesn't cancel. A full epic set ≈ +13% power and 15% defense (inside the 1.5×
   // power band with levels' +30%).
-  LOOT_DROP_CHANCE: 0.4,
+  LOOT_DROP_CHANCE: 0.5,           // raised from 0.4 after playtesting (2026-11-18)
   LOOT_MIN_PARTICIPATION: 0.5,
   // Rarest first. `chance` is before luck; common takes whatever is left.
   // `statFactor` is the share of the slot's max stat the item gets.
@@ -230,5 +230,8 @@ module.exports = {
   // Stream controls. Mods can change both at runtime (!manualmode / !automode,
   // !opengame / !closegame / !closequeue); these are what the server starts with.
   MANUAL_START_DEFAULT: false,  // true: lobbies wait for a mod's !startbattle instead of counting down
-  GAME_OPEN_ON_START: true      // false: the server starts closed until a mod types !opengame
+  GAME_OPEN_ON_START: true,     // false: the server starts closed until a mod types !opengame
+  // Starts every message the bot posts, so game announcements stand out from the
+  // streamer's own messages when the bot logs in as the streamer's account.
+  BOT_MESSAGE_PREFIX: "🤖"
 };

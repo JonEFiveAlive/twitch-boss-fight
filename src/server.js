@@ -9,7 +9,7 @@ const { createGameLoop } = require("./gameLoop");
 const { refreshAccessToken } = require("./twitchAuth");
 const { startDevChat } = require("./devChat");
 const { openProgressStore } = require("./progress");
-const { DATABASE_FILE, OFFLINE_DATABASE_FILE } = require("./gameConfig");
+const { DATABASE_FILE, OFFLINE_DATABASE_FILE, BOT_MESSAGE_PREFIX } = require("./gameConfig");
 
 const PORT = process.env.PORT || 3000;
 // --offline skips Twitch entirely and takes fake chat from the terminal / POST /dev/chat.
@@ -55,7 +55,8 @@ const game = createGameLoop(io, { fetchAvatar: fetchTwitchAvatar, store, announc
 let twitchClient = null;
 
 // The bot only posts fight start/end and level-ups — chat is busy enough with commands.
-function announce(message) {
+function announce(text) {
+  const message = BOT_MESSAGE_PREFIX ? `${BOT_MESSAGE_PREFIX} ${text}` : text;
   if (OFFLINE) {
     console.log(`[chat] ${message}`);
     return;

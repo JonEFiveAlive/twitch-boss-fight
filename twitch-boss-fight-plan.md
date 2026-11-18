@@ -315,7 +315,7 @@ Guiding goal: anyone can join any fight and matter. Progression is mostly about
   playtesting says the grind is too fast or slow.
 - Mixed parties: one veteran with several new players averages out to a lower
   variant — confirm that feels right in playtesting.
-- Gear drop rate (40% per eligible player per win) and rarity odds — confirm the
+- Gear drop rate (50% per eligible player per win, raised from 40%) and rarity odds — confirm the
   pace of upgrades feels right on stream.
 - One shared raid/fight per stream vs. multiple simultaneous instances (leaning
   toward one shared fight for v1 — much simpler to build and to watch).
@@ -801,3 +801,7 @@ Guiding goal: anyone can join any fight and matter. Progression is mostly about
     new mechanics sensibly (defend through eruptions and marked chains, heal
     the afflicted first, defend while afflicted with no Cleric up), and raid
     mode averages over bosses with the party's tier damage.
+- **Playtest tweaks (2026-11-18).** `LOOT_DROP_CHANCE` raised from 0.4 to 0.5
+  (an eligible player now gets a drop on half of their wins). Every bot chat
+  message now starts with `BOT_MESSAGE_PREFIX` (🤖), so announcements stand out
+  when the bot posts from the streamer's own account.
