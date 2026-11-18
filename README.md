@@ -3,7 +3,7 @@
 A collaborative, round-based boss fight that your Twitch chat plays together.
 Viewers join a party as a Tank, Mage or Cleric and type commands like `!attack`,
 `!defend` or `!heal` in chat. Once per round the game resolves everyone's choice
-at once, and a Final-Fantasy-style battle screen shows the result on stream.
+at once, and a JRPG-style battle screen shows the result on stream.
 
 ![A Frost Wyrm battle in progress: party on the right, combat log and party status below](docs/images/battle.png)
 
