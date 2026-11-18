@@ -356,5 +356,6 @@ Claude Code), working from the maintainer's design direction, decisions and
 playtesting. Commits with AI involvement carry a `Co-Authored-By: Claude`
 trailer.
 
-That's part of why the source is open: anyone can read exactly what it does,
-check it and build on it.
+## Author's Note
+
+This project was created as a learning endeavor with a goal of creating something that could be useful, fun, and engaging.  You may freely use this on your stream, I only ask that you identify the source to your stream and I appreciate a note in the discussion here providing feedback of your experience with it and any suggestions or ideas.
