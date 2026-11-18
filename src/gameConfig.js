@@ -146,7 +146,7 @@ module.exports = {
   // armor adds defense, a cut to incoming boss hits that per-player hit scaling
   // doesn't cancel. A full epic set ≈ +13% power and 15% defense (inside the 1.5×
   // power band with levels' +30%).
-  LOOT_DROP_CHANCE: 0.5,           // raised from 0.4 after playtesting (2026-11-18)
+  LOOT_DROP_CHANCE: 0.6,           // raised from 0.4 → 0.5 → 0.6 after playtesting (2026-11-18): a win should feel like winning something
   LOOT_MIN_PARTICIPATION: 0.5,
   // Rarest first. `chance` is before luck; common takes whatever is left.
   // `statFactor` is the share of the slot's max stat the item gets.
