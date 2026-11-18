@@ -11,9 +11,11 @@ Final-Fantasy-style battle screen. Viewers type chat commands (`!join`, `!attack
 pushes updated game state to a browser overlay (captured in OBS).
 
 **Full design roadmap, phase-by-phase plan, and the "ideas log" of parked
-future features all live in `twitch-boss-fight-plan.md` in this repo — read
-that before starting work on a new phase or feature, since it documents design
-decisions and the reasoning behind them.**
+future features all live in `twitch-boss-fight-plan.md` in the project folder
+— read that before starting work on a new phase or feature, since it documents
+design decisions and the reasoning behind them. The plan is deliberately kept
+out of git (it's in `.gitignore`): keep updating it locally, and don't link to it
+from published files like the README.**
 
 ## Current status
 

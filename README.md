@@ -103,7 +103,7 @@ before the game closes, or close the game entirely between segments. See the
 
 ## Project status
 
-Phases 1–8 of the [project plan](twitch-boss-fight-plan.md) are built:
+Phases 1–8 of the project are built:
 
 - the core round loop
 - classes and targeted heals/revives
@@ -122,8 +122,8 @@ Still to come:
   stats and inventory, and choose your gear between streams.
 - **Real pixel art.** Every sprite is placeholder art drawn in code for now.
 
-Parked ideas (crowd-cheer meter, seasonal bosses, titles and more) are in the
-plan's Ideas Log.
+Ideas further out include a crowd-cheer meter for spectators, seasonal bosses
+and earnable titles.
 
 ---
 
@@ -316,9 +316,6 @@ scripts/
   balance-sim.js          balance simulator
   screenshot.js           headless overlay screenshots (npm run screenshot)
 ```
-
-The design notes, decisions and full change log are in
-[`twitch-boss-fight-plan.md`](twitch-boss-fight-plan.md).
 
 ## Troubleshooting
 
