@@ -33,7 +33,7 @@ Ember Golem, Shadow Lich, Storm Roc — each with a signature move, an elemental
 weakness/resistance and its own biome; random skirmish boss with a mod's
 `!boss` override; mixed-boss raids with Normal/Heroic/Mythic tiers) is
 implemented and awaiting playtest. The full chat command reference is in
-README.md section 8.
+README.md ("Chat commands"); README screenshots live in docs/images/.
 Manual equipping waits for the Phase 9 companion app. See `twitch-boss-fight-plan.md` for the full phase list, plus the
 "Progression & Balance" and "Party, Participation & Stream Ops" sections for
 decided design rules. Do not start work on later phases (classes, targeted

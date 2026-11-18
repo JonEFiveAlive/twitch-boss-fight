@@ -1,9 +1,12 @@
 {
   "name": "twitch-boss-fight",
   "version": "0.1.0",
-  "description": "Phase 1 - collaborative round-based Twitch chat boss fight",
+  "description": "A collaborative, round-based Twitch chat boss fight with an OBS overlay",
   "main": "src/server.js",
   "type": "commonjs",
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",

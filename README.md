@@ -1,43 +1,143 @@
-# Twitch Chat Boss Fight — Phase 1
+# Twitch Chat Boss Fight
 
-A collaborative, round-based PvE boss fight for Twitch chat. Viewers type `!join`,
-then `!attack` or `!defend` each round; the game resolves everyone's last command
-together and updates a live overlay you capture in OBS.
+A collaborative, round-based boss fight that your Twitch chat plays together.
+Viewers join a party as a Tank, Mage or Cleric and type commands like `!attack`,
+`!defend` or `!heal` in chat. Once per round the game resolves everyone's choice
+at once, and a Final-Fantasy-style battle screen shows the result on stream.
 
-This is the **Phase 1** build: no classes, no persistence, no gear — just the core
-loop, so you can validate it's fun to watch before anything else gets added.
+![A Frost Wyrm battle in progress: party on the right, combat log and party status below](docs/images/battle.png)
 
----
-
-## What's included
-
-```
-twitch-boss-fight/
-├── package.json
-├── .env.example
-├── src/
-│   ├── gameConfig.js     - all tunable numbers (damage, timers, HP) in one place
-│   ├── bossRotation.js   - the scripted boss move rotation
-│   ├── fight.js          - core resolveRound() logic
-│   ├── gameLoop.js        - phase/timer orchestration, broadcasts state to overlay
-│   └── server.js          - ties it together: web server + Twitch chat listener
-└── public/
-    ├── overlay.html
-    ├── overlay.css
-    └── overlay.js          - renders the state pushed from the server
-```
+The battle screen is a browser page you add to OBS as a Browser Source. The game
+runs on your own computer as a small Node.js server that reads your Twitch chat.
 
 ---
 
-## 1. Prerequisites
+## How it plays
 
-- **Node.js** version 18 or later. Check with `node --version`; if you don't have
-  it, install from https://nodejs.org.
-- A **Twitch account to use as the bot**. This can be your own streaming account,
-  or (recommended, so bot messages don't look like they're from you) a second,
-  free Twitch account created just for this purpose.
+- **Rounds, not spam.** Each round, chat has 15 seconds to choose an action. Only
+  each viewer's **last** command before the round locks counts, so typing faster
+  or more often does nothing. Anyone who doesn't choose defends.
+- **The boss tells you what's coming.** Before anyone commits, the boss announces
+  its next move, such as a breath attack on a named player, a power attack
+  wind-up or a counter. The skill is reading the warning and choosing well.
+- **Everyone has their own HP.** A player's choices decide whether *they*
+  survive. Fallen players can be revived by a Cleric.
+- **Anyone can join any fight.** The boss scales to the party that actually
+  joined, so a solo viewer and a party of ten both get a fight of about 15 rounds
+  (about five minutes). Veterans make the boss tougher rather than easier.
 
-## 2. Install dependencies
+## Features
+
+### Three classes
+
+| Class | Role | Signature commands |
+| --- | --- | --- |
+| **Tank** | Protector | `!taunt`: take the boss's targeted strike and soften area hits for the party |
+| **Mage** | Damage | `!fire`: big damage for MP |
+| **Cleric** | Healer | `!heal [slot / name / self]`, `!revive [slot / name]` |
+
+Everyone can `!attack` and `!defend`. Defending blocks 90% of most hits and
+recovers a little HP, which keeps healer-less parties alive.
+
+### Four bosses
+
+Each skirmish picks a boss at random (never the same one twice in a row), and
+each boss has its own backdrop, a signature move and an elemental weakness or
+resistance.
+
+| Boss | Weak / resists | Signature move |
+| --- | --- | --- |
+| **Frost Wyrm** | weak to fire | *Blizzard* hits everyone and ignores defend: heal through it |
+| **Ember Golem** | resists fire | *Eruption* sets anyone who didn't defend on fire for a few rounds; a Cleric's heal puts it out |
+| **Shadow Lich** | weak to holy (Cleric attacks) | *Hex of Decay* drains one player every round until a Cleric heals them |
+| **Storm Roc** | weak to physical | *Chain Lightning* arcs through a row of neighboring players; the marked slots defend |
+
+![The Ember Golem's volcano arena, with two burning players and an Eruption warning](docs/images/ember-golem.png)
+
+Parties without a Cleric face a gentler **Lesser** boss, and parties of
+seasoned players face a **Powerful** one with extra targets and an earlier
+enrage.
+
+### Progression and loot
+
+- **XP and levels per class.** Every round you act earns XP, win or lose; wins
+  add a bonus, more for beating par. Levels raise your HP, damage and healing,
+  up to +30% at level 50. Past that, levels keep counting as bragging rights.
+- **Gear drops** after a win: weapons add power, armor adds defense. Better
+  items are equipped automatically and drawn on your character's sprite (green,
+  blue or purple for uncommon, rare and epic).
+- **Results screen** after every fight: loot, damage/healing stats, badges (Top
+  Damage, Top Healer, Lifesaver, Daredevil) and level-ups. A **Top Heroes**
+  leaderboard shows in the lobby.
+
+| Lobby | Victory screen |
+| --- | --- |
+| ![Lobby with class cards, the upcoming boss and the party roster](docs/images/lobby.png) | ![Victory screen with loot drops, battle stats and badges](docs/images/results.png) |
+
+Progress is saved in a local SQLite database (`data/bossfight.db`), keyed by
+Twitch user ID, so it survives name changes and server restarts.
+
+### Raids
+
+Five battles in a row against a shuffled lineup of all four bosses, getting
+harder each battle. Classes lock for the whole raid. Each battle won banks a
+chest, and clearing all five adds a bonus chest. When the raid ends, every
+raider who stuck it out opens them all.
+
+A raid's tier (**Normal**, **Heroic** or **Mythic**) follows the party's
+strength. Higher tiers pay out better chests, and nobody is ever kept out.
+
+| Between raid battles | Raid cleared |
+| --- | --- |
+| ![Raid intermission showing the battle track, next boss and chests banked](docs/images/raid-intermission.png) | ![Raid summary with each raider's opened chests and raid totals](docs/images/raid-cleared.png) |
+
+Mods start raids with `!raid`, or can let chat vote one in with `!raidvote`.
+
+### Tools for running a stream
+
+Mods can pause the game, skip ahead, end a battle (players keep the XP
+they earned), remove someone, or pick the next boss. Streamers can start each
+battle themselves (manual mode), call **last call** so the queue plays out
+before the game closes, or close the game entirely between segments. See the
+[command reference](#chat-commands) below.
+
+## Project status
+
+Phases 1–8 of the [project plan](twitch-boss-fight-plan.md) are built:
+
+- the core round loop
+- classes and targeted heals/revives
+- party management with a queue
+- persistence
+- level and gear power
+- gear drops
+- raids
+- multiple bosses with raid tiers
+
+Phase 8 (the new bosses and raid tiers) is awaiting playtesting.
+
+Still to come:
+
+- **Web companion app (Phase 9):** log in with Twitch to see your XP progress,
+  stats and inventory, and choose your gear between streams.
+- **Real pixel art.** Every sprite is placeholder art drawn in code for now.
+
+Parked ideas (crowd-cheer meter, seasonal bosses, titles and more) are in the
+plan's Ideas Log.
+
+---
+
+## Setup
+
+### 1. Prerequisites
+
+- **Node.js 22.13 or later.** The game uses Node's built-in SQLite module. Check
+  with `node --version`, and install from https://nodejs.org if needed.
+- **A Twitch account for the bot.** This can be your own streaming account, or
+  (recommended, so bot messages don't look like they're from you) a second free
+  Twitch account created just for this.
+
+### 2. Install dependencies
 
 Open a terminal in the `twitch-boss-fight` folder and run:
 
@@ -45,27 +145,19 @@ Open a terminal in the `twitch-boss-fight` folder and run:
 npm install
 ```
 
-This downloads `express`, `socket.io`, `tmi.js`, and `dotenv` into a `node_modules`
-folder.
+### 3. Register a Twitch application
 
-## 3. Register a Twitch application and get your Client ID/Secret
-
-1. Go to https://dev.twitch.tv/console and log in with your main Twitch account
-   (this is your *developer* account — separate from whichever account the bot
-   logs in as).
+1. Go to https://dev.twitch.tv/console and log in with your main Twitch account.
 2. Click **Register Your Application**.
 3. Fill in:
-   - **Name** — anything unique (e.g. "YourChannel Boss Fight")
-   - **OAuth Redirect URLs** — add exactly `http://localhost:3001/oauth/callback`
-     (this is used only for the one-time setup script below; you'll add your real
-     production URL here later when Phase 8's web app exists)
-   - **Category** — "Chat Bot" or "Application Integration" both work
-4. Save it. You'll see a **Client ID** immediately, and can generate a
-   **Client Secret** on the same page — treat the secret like a password.
+   - **Name**: anything unique, e.g. "YourChannel Boss Fight"
+   - **OAuth Redirect URLs**: exactly `http://localhost:3001/oauth/callback`
+     (used only by the one-time setup script below)
+   - **Category**: "Chat Bot" or "Application Integration"
+4. Save it. You'll see a **Client ID**, and can generate a **Client Secret** on
+   the same page. Treat the secret like a password.
 
-## 4. Configure your environment
-
-Copy the example env file:
+### 4. Configure your environment
 
 ```bash
 cp .env.example .env
@@ -73,69 +165,78 @@ cp .env.example .env
 
 Open `.env` and fill in:
 
-- `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` — from step 3
-- `TWITCH_BOT_USERNAME` — the bot account's Twitch username
-- `TWITCH_CHANNEL` — your channel name, lowercase, no `#`
-- `TWITCH_REDIRECT_URI` — leave as the default unless you changed it in step 3
-- `PORT` — leave as `3000` unless that port is already in use
-- Leave `TWITCH_REFRESH_TOKEN` blank for now — the next step fills it in
+- `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET`: from step 3
+- `TWITCH_BOT_USERNAME`: the bot account's Twitch username
+- `TWITCH_CHANNEL`: your channel name, lowercase, no `#`
+- `TWITCH_REDIRECT_URI`: leave the default unless you changed it in step 3
+- `PORT`: leave as `3000` unless that port is in use
+- Leave `TWITCH_REFRESH_TOKEN` blank; the next step fills it in
 
-## 5. Get your bot's refresh token (one-time)
+`.env` holds your credentials and is never committed to git.
+
+### 5. Get the bot's refresh token (one time)
 
 ```bash
 npm run get-token
 ```
 
-This starts a tiny local script and prints an authorization URL. Before opening
-it:
+This prints an authorization URL. Before opening it:
 
-1. In your browser, **log in to Twitch as your bot account** (not your streamer
-   account) — whichever account is logged in when you click Authorize is the
-   account the bot will act as.
+1. In your browser, **log in to Twitch as your bot account**. Whichever account
+   is logged in when you click Authorize is the one the bot will act as.
 2. Open the printed URL and click **Authorize**.
-3. The terminal will print a line like:
-   ```
-   TWITCH_REFRESH_TOKEN=abcd1234...
-   ```
-   Copy that whole line into your `.env` file.
+3. The terminal prints a line like `TWITCH_REFRESH_TOKEN=abcd1234...`. Copy that
+   whole line into `.env`.
 
-You only need to do this once. From here on, the server refreshes its own
-access token automatically in the background — no more manually regenerating
-tokens every couple months.
+You only do this once; the server refreshes its own access token from then on.
 
-## 6. Run the server
+### 6. Run the server
 
 ```bash
 npm start
 ```
 
-You should see something like:
+You should see:
 
 ```
 Overlay server running at http://localhost:3000/overlay.html
-Connected to Twitch chat (irc-ws.chat.twitch.tv:443), channel: your_channel_name
+Connected to Twitch chat, channel: your_channel_name
 ```
 
-If you see a connection error instead, double-check your `.env` values — the most
-common issues are a stale/expired token or a typo in the channel name.
+### 7. Add the overlay to OBS
 
-## 7. Add the overlay to OBS
+1. In OBS, add a **Browser Source**.
+2. URL: `http://localhost:3000/overlay.html`
+3. Width × height: **1280 × 720**.
+4. Leave "Shutdown source when not visible" **unchecked**, so the overlay stays
+   connected when you switch scenes.
 
-1. In OBS, add a new **Browser Source**.
-2. Set the URL to: `http://localhost:3000/overlay.html`
-3. Set width/height to **1280 x 720** (matches the overlay's layout).
-4. Leave "Shutdown source when not visible" **unchecked** so the game state
-   doesn't reset when you switch scenes.
-5. The background is transparent, so it will sit cleanly over your existing
-   scene/webcam layout.
+The overlay is a full-frame scene with its own dark backdrop, so it works best
+as its own scene or a large window in your layout. It reloads itself whenever
+the server restarts, so OBS never runs stale code.
 
-## 8. Playing a fight
+### Try it without Twitch
 
-The overlay opens in the **lobby**: viewers `!join` and the battle starts when
-the lobby countdown runs out (20 seconds after the first join; see
-`LOBBY_JOIN_SECONDS`). Each round, chat has `INPUT_WINDOW_SECONDS` to choose an
-action. Only your **last** command before the round locks counts, and anyone
-who doesn't choose defends.
+```bash
+npm run offline
+```
+
+Offline mode skips Twitch and saves to a separate database (`data/offline.db`),
+so test players never touch real profiles. Type fake chat into the server's
+terminal as `<name> <message>`, e.g. `Melody !join mage`, or send it over HTTP:
+
+```bash
+curl -X POST localhost:3000/dev/chat -H 'Content-Type: application/json' \
+  -d '{"user":"Melody","message":"!join mage"}'
+```
+
+Fake users count as mods, so mod commands work too.
+
+---
+
+## Chat commands
+
+The lobby counts down 20 seconds after the first `!join`, then the battle starts.
 
 ### Player commands
 
@@ -144,9 +245,9 @@ who doesn't choose defends.
 | `!join [tank\|mage\|cleric]` | Join the lobby (or the queue, if a fight is on or the party is full). Plain `!join` picks the class the party needs; joining again in the lobby switches class. |
 | `!leave` (or `!flee`) | Drop out of the lobby or queue, or flee the fight in progress. XP for rounds already fought is kept; a raider who leaves forfeits the raid's chests. |
 | `!attack`, `!defend` | Everyone. |
-| `!taunt` | Tank: take the Frost Breath and shield the party. |
+| `!taunt` | Tank: take the boss's targeted strike and shield the party. |
 | `!fire` | Mage: big damage, costs MP. |
-| `!heal [slot / name / self]`, `!revive [slot / name]` | Cleric. No target = auto-pick. |
+| `!heal [slot / name / self]`, `!revive [slot / name]` | Cleric. With no target, heals go to whoever needs it most (burning or hexed players first). |
 | `!raidvote` | Vote to make this lobby a raid (only while a mod has voting on). |
 
 ### Mod / broadcaster commands
@@ -167,39 +268,72 @@ who doesn't choose defends.
 | `!closegame` | Close now: no new joins and the queue is cleared. An open lobby closes immediately; a fight or raid in progress plays out first (`!endbattle` to stop it now). |
 | `!opengame` | Reopen: starts a fresh lobby when closed, or cancels a last call / pending close. |
 
-While the game is closed the overlay shows a "The Wyrm Sleeps" card with the
-leaderboard, and `!join` is ignored. To have the server start closed (so nothing
-runs before you go live), set `GAME_OPEN_ON_START: false` in `gameConfig.js`;
-`MANUAL_START_DEFAULT: true` likewise starts in manual mode. The `!manualmode`
-and open/closed settings reset to these defaults when the server restarts.
+While the game is closed, the overlay shows a "The Wyrm Sleeps" card with the
+leaderboard and `!join` is ignored. To have the server start closed (so nothing
+runs before you go live), set `GAME_OPEN_ON_START: false` in
+`src/gameConfig.js`; `MANUAL_START_DEFAULT: true` likewise starts in manual
+mode. Changes made with chat commands reset to these defaults when the server
+restarts.
 
-## 9. Tuning the numbers
+---
 
-Everything balance-related lives in `src/gameConfig.js` — damage values, HP
-totals, defend mitigation percentage, and timer lengths. Change a number, restart
-the server (`Ctrl+C` then `npm start` again), and the new values take effect
-immediately. No other files need to change for basic balance tweaks.
+## Tuning and balance
 
-## 10. What's deliberately NOT in Phase 1
+Every number lives in `src/gameConfig.js`: class stats, boss damage and move
+weights, timers, XP curve, loot odds, raid stages and tiers. Change a value and
+restart the server.
 
-Per the project plan, these are coming in later phases and are intentionally left
-out for now: classes, targeted commands (e.g. `!heal player2`), persistence
-across streams, gear, raids (multi-battle sequences), and the web companion app.
-See `twitch-boss-fight-plan.md` (the planning doc) for the full roadmap.
+Balance is measured rather than guessed. `scripts/balance-sim.js` plays
+hundreds of fights through the real game logic with scripted "chat" styles
+(sensible, sloppy, risky) and reports fight length, KOs, revives and wipe rates:
+
+```bash
+node scripts/balance-sim.js --boss all              # every boss, every party
+node scripts/balance-sim.js --raid --only TMC       # raid clear rates
+node scripts/balance-sim.js --set BURN_DAMAGE=10    # try a value without editing the config
+```
+
+## Project layout
+
+```
+src/
+  gameConfig.js   all tunable numbers
+  fight.js        core round resolution (no Twitch/web dependencies)
+  bosses.js       boss names, move names, elements and biomes
+  bossMoves.js    the boss's announced move selection
+  gameLoop.js     phases, timers, raids, stream controls; broadcasts state
+  power.js        level + gear → player power
+  loot.js         gear drops
+  progress.js     SQLite persistence: XP, levels, stats, items
+  server.js       web server, Socket.IO and the Twitch chat connection
+  twitchAuth.js   access-token refresh
+  devChat.js      offline mode's fake chat
+public/
+  overlay.html/.css/.js   the OBS overlay (battle, lobby, results screens)
+  sprites.js              placeholder pixel art drawn as SVG
+scripts/
+  get-twitch-token.js     one-time OAuth setup
+  balance-sim.js          balance simulator
+  screenshot.js           headless overlay screenshots (npm run screenshot)
+```
+
+The design notes, decisions and full change log are in
+[`twitch-boss-fight-plan.md`](twitch-boss-fight-plan.md).
 
 ## Troubleshooting
 
-- **"Failed to connect to Twitch chat" / token refresh errors** — double check
-  `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, and `TWITCH_REFRESH_TOKEN` in
-  `.env`. If the refresh token was ever revoked (e.g. you removed the app's
-  access from your Twitch account settings), re-run `npm run get-token`.
-- **`npm run get-token` fails or the redirect never completes** — the redirect
-  URI must match *exactly* (including `http://` and the port) between your
-  `.env`'s `TWITCH_REDIRECT_URI` and the URL registered in the Twitch dev
-  console for your application.
-- **Overlay shows nothing / blank page in OBS** — make sure `npm start` is still
-  running in a terminal (closing the terminal stops the server), and that the
-  Browser Source URL exactly matches `http://localhost:3000/overlay.html`.
-- **Commands aren't registering** — commands are case-insensitive but must match
-  exactly (`!attack`, `!join mage`, `!startbattle`, ...) with no extra text
-  before them in the message.
+- **"Failed to connect to Twitch chat" / token refresh errors:** check
+  `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` and `TWITCH_REFRESH_TOKEN` in
+  `.env`. If the refresh token was revoked (e.g. you removed the app's access in
+  your Twitch settings), run `npm run get-token` again.
+- **`npm run get-token` fails or the redirect never completes:** the redirect
+  URI must match *exactly* (including `http://` and the port) between
+  `TWITCH_REDIRECT_URI` in `.env` and the URL registered in the Twitch developer
+  console.
+- **The server won't start with a `node:sqlite` error:** your Node.js is too
+  old; install 22.13 or later.
+- **Overlay is blank in OBS:** make sure the server is still running (closing
+  its terminal stops it) and the Browser Source URL is exactly
+  `http://localhost:3000/overlay.html`.
+- **Commands aren't registering:** commands are case-insensitive but must start
+  the message (`!attack`, `!join mage`, `!startbattle`, ...).
