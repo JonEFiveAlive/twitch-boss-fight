@@ -34,7 +34,9 @@ classes, chests banked per win and opened at the end) and the stream controls
 Ember Golem, Shadow Lich, Storm Roc — each with a signature move, an elemental
 weakness/resistance and its own biome; random skirmish boss with a mod's
 `!boss` override; mixed-boss raids with Normal/Heroic/Mythic tiers) is
-implemented and awaiting playtest. The full chat command reference is in
+implemented and awaiting playtest, as are **awards** (ten tracks of tiered
+titles, name-plate frames, legendary auras; `!titles` / `!title` / `!aura`). The
+next big phase is the Phase 9 companion app. The full chat command reference is in
 README.md ("Chat commands"); README screenshots live in docs/images/.
 Manual equipping waits for the Phase 9 companion app. See `twitch-boss-fight-plan.md` for the full phase list, plus the
 "Progression & Balance" and "Party, Participation & Stream Ops" sections for
@@ -68,6 +70,11 @@ src/
                      raid mode, stream controls, timers, and broadcasts state
                      to connected overlay clients via Socket.IO. Tallies each
                      fight's per-player stats and hands them to progress.js.
+  achievements.js  - award tracks (each boss, wins, raids, Mythic raids, revives,
+                     daring, level), four tiers each with a title; best tier =
+                     name-plate frame, legendary tiers unlock auras. Pure data +
+                     helpers; progress.js stores earned tiers (schema v3) and the
+                     gameLoop announces them and handles !titles / !title / !aura.
   power.js         - playerPower(level, gearPower): the one multiplier that turns
                      progression into strength (max HP, damage, healing) and
                      sizes the boss.

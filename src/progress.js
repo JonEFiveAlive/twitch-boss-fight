@@ -12,9 +12,12 @@ const {
   LEVEL_XP_GROWTH,
   TARGET_FIGHT_ROUNDS
 } = require("./gameConfig");
+const { tiersReached, cosmeticsFor } = require("./achievements");
 
-// v2 (Phase 6) added `items`; CREATE TABLE IF NOT EXISTS upgrades v1 databases in place.
-const SCHEMA_VERSION = 2;
+// v2 (Phase 6) added `items`; v3 (awards) added `achievements`, `raid_clears` and the
+// players' chosen title/aura. CREATE TABLE IF NOT EXISTS upgrades older databases in
+// place; see migrate() for the rest.
+const SCHEMA_VERSION = 3;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS players (
@@ -84,6 +87,21 @@ const SCHEMA = `
     acquired_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS items_owner ON items (user_id, class_id, equipped);
+  -- The highest tier reached on each award track (see achievements.js).
+  CREATE TABLE IF NOT EXISTS achievements (
+    user_id   TEXT NOT NULL,
+    track_id  TEXT NOT NULL,
+    tier      INTEGER NOT NULL,             -- 0 bronze, 1 silver, 2 gold, 3 legendary
+    earned_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, track_id)
+  );
+  -- Raids each player saw through to a full clear, per raid tier.
+  CREATE TABLE IF NOT EXISTS raid_clears (
+    user_id TEXT NOT NULL,
+    tier    TEXT NOT NULL,                  -- normal | heroic | mythic
+    clears  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, tier)
+  );
 `;
 
 // XP needed to go from `level` to `level + 1`.
@@ -115,8 +133,12 @@ function openProgressStore(dbFile) {
   if (dbFile !== ":memory:") fs.mkdirSync(path.dirname(dbFile), { recursive: true });
   const db = new DatabaseSync(dbFile);
   db.exec("PRAGMA journal_mode = WAL;");
+  const oldVersion = db.prepare("PRAGMA user_version").get().user_version;
   db.exec(SCHEMA);
-  db.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
+  // Columns added after a table's first version (ALTER TABLE has no IF NOT EXISTS).
+  const columns = new Set(db.prepare("PRAGMA table_info(players)").all().map(c => c.name));
+  if (!columns.has("title")) db.exec("ALTER TABLE players ADD COLUMN title TEXT"); // chosen title; NULL = automatic, '' = none
+  if (!columns.has("aura")) db.exec("ALTER TABLE players ADD COLUMN aura TEXT");   // chosen aura; same convention
 
   const upsertPlayer = db.prepare(`
     INSERT INTO players (user_id, display_name, first_seen, last_seen) VALUES (?, ?, ?, ?)
@@ -158,6 +180,56 @@ function openProgressStore(dbFile) {
     return { ...item, equipped: upgrade };
   }
 
+  // --- Awards ---
+  const bossWinTotals = db.prepare("SELECT boss_id, SUM(wins) AS wins FROM boss_wins WHERE user_id = ? GROUP BY boss_id");
+  const profileTotals = db.prepare(`
+    SELECT SUM(wins) AS wins, SUM(revives) AS revives, SUM(daring_hits) AS daring, MAX(level) AS level
+    FROM class_profiles WHERE user_id = ?`);
+  const raidClearTotals = db.prepare("SELECT tier, clears FROM raid_clears WHERE user_id = ?");
+  const addRaidClear = db.prepare(`
+    INSERT INTO raid_clears (user_id, tier, clears) VALUES (?, ?, 1)
+    ON CONFLICT (user_id, tier) DO UPDATE SET clears = clears + 1`);
+  const earnedRows = db.prepare("SELECT track_id AS trackId, tier, earned_at AS earnedAt FROM achievements WHERE user_id = ?");
+  const upsertAchievement = db.prepare(`
+    INSERT INTO achievements (user_id, track_id, tier, earned_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT (user_id, track_id) DO UPDATE SET tier = excluded.tier, earned_at = excluded.earned_at
+    WHERE excluded.tier > achievements.tier`);
+  const getChoices = db.prepare("SELECT display_name AS name, title, aura FROM players WHERE user_id = ?");
+  const setTitleStmt = db.prepare("UPDATE players SET title = ? WHERE user_id = ?");
+  const setAuraStmt = db.prepare("UPDATE players SET aura = ? WHERE user_id = ?");
+
+  // Lifetime totals the award tracks count (keys match TRACKS[].stat).
+  function awardStats(userId) {
+    const stats = {};
+    for (const row of bossWinTotals.all(userId)) stats[`wins:${row.boss_id}`] = row.wins;
+    const p = profileTotals.get(userId) ?? {};
+    stats.wins = p.wins ?? 0;
+    stats.revives = p.revives ?? 0;
+    stats.daring = p.daring ?? 0;
+    stats.level = p.level ?? 1;
+    stats.raids = 0;
+    for (const row of raidClearTotals.all(userId)) {
+      stats.raids += row.clears;
+      stats[`raids:${row.tier}`] = row.clears;
+    }
+    return stats;
+  }
+
+  // Saves every tier newly reached; returns them as [{ trackId, tier }].
+  function checkAwards(userId, now = new Date().toISOString()) {
+    const have = Object.fromEntries(earnedRows.all(userId).map(r => [r.trackId, r.tier]));
+    const fresh = tiersReached(awardStats(userId)).filter(r => r.tier > (have[r.trackId] ?? -1));
+    for (const r of fresh) upsertAchievement.run(userId, r.trackId, r.tier, now);
+    return fresh;
+  }
+
+  // Upgrading from before awards existed: credit everyone's history silently.
+  if (oldVersion > 0 && oldVersion < 3) {
+    const now = new Date().toISOString();
+    for (const { user_id: userId } of db.prepare("SELECT user_id FROM players").all()) checkAwards(userId, now);
+  }
+  db.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
+
   const topProfiles = db.prepare(`
     SELECT p.display_name AS name, c.class_id AS classId, c.level, c.xp, c.wins
     FROM class_profiles c JOIN players p USING (user_id)
@@ -171,6 +243,50 @@ function openProgressStore(dbFile) {
 
     leaderboard(limit = 5) {
       return topProfiles.all(limit);
+    },
+
+    /** Lifetime totals behind the award tracks. */
+    awardStats,
+
+    /**
+     * Saves any award tiers the players have newly reached (call after recording a
+     * fight or a raid clear). Returns [{ userId, name, trackId, tier }].
+     */
+    checkAwards(userIds) {
+      const awards = [];
+      db.exec("BEGIN");
+      try {
+        for (const userId of userIds) {
+          const name = getChoices.get(userId)?.name ?? userId;
+          for (const r of checkAwards(userId)) awards.push({ userId, name, ...r });
+        }
+        db.exec("COMMIT");
+      } catch (err) {
+        db.exec("ROLLBACK");
+        throw err;
+      }
+      return awards;
+    },
+
+    /** Counts a full raid clear for each player, at the raid's tier. */
+    recordRaidClear(userIds, tier) {
+      for (const userId of userIds) addRaidClear.run(userId, tier);
+    },
+
+    /** What a player shows and owns: { title, titleTier, aura, frame, titles, auras }. */
+    cosmetics(userId) {
+      const choice = getChoices.get(userId);
+      return cosmeticsFor(earnedRows.all(userId), { title: choice?.title ?? null, aura: choice?.aura ?? null });
+    },
+
+    /** Saves a player's title choice: a title, "" for none, null for automatic. */
+    setTitle(userId, title) {
+      setTitleStmt.run(title, userId);
+    },
+
+    /** Saves a player's aura choice: an aura id, "" for none, null for automatic. */
+    setAura(userId, aura) {
+      setAuraStmt.run(aura, userId);
     },
 
     /** Items currently equipped on a user's class: [{ slot, rarity, name, stat, value }]. */

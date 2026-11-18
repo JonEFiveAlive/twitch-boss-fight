@@ -526,18 +526,21 @@ function renderBattlefield(state, entries) {
 
     const intent = currentIntent(state, entry);
     const name = state.playerNames?.[entry.userId] ?? entry.userId;
+    const cos = state.playerCosmetics?.[entry.userId];
     unit.innerHTML = `
       <div class="intent ${intent ? "" : "empty"}" style="color:${intent?.color ?? "inherit"}">
         ${intent ? `${intent.icon ? iconSvg(intent.icon, large ? 14 : 12) : ""}<span>${intent.text}${escapeHtml(intent.target)}</span>` : "&nbsp;"}
       </div>
       <div class="unit-sprite">
         <div class="aura"></div>
+        ${entry.alive ? auraHtml(state.playerCosmetics?.[entry.userId], spriteSize) : ""}
         ${spriteSvg(entry.alive ? entry.classId : "fallen", spriteSize, state.playerGear?.[entry.userId])}
         ${marked.includes(entry.userId) ? `<div class="${reticleClass}"><i></i><i></i><i></i><i></i></div>` : ""}
         ${statusBadgesHtml(entry.player)}
         ${healTargets.has(entry.userId) ? `<div class="heal-target-badge">✚</div>` : ""}
       </div>
-      <div class="unit-name"><span class="slot">${entry.slot}</span><span class="name-text">${escapeHtml(name)}</span></div>
+      <div class="unit-name${cos?.frame ? ` frame-${cos.frame}` : ""}"><span class="slot">${entry.slot}</span><span class="name-text">${escapeHtml(name)}</span></div>
+      ${large ? titleHtml(cos, "unit-title") : ""}
     `;
 
     // Bounce the action bubble when a player freshly locks in a command.
@@ -546,6 +549,37 @@ function renderBattlefield(state, entries) {
     }
     if (isNew) addAnim(unit, "anim-unit-enter");
   });
+}
+
+// Award cosmetics (see src/achievements.js). AURA_LOOKS mirrors its AURAS:
+// glyph = drifting particles, accessory = a pixel item above the head.
+const AURA_LOOKS = {
+  frostbound:  { color: "#bfe6ff", glyph: "❄" },
+  emberheart:  { color: "#ff9a3d", glyph: "✦" },
+  voidtouched: { color: "#c39bff", glyph: "✧" },
+  stormcaller: { color: "#fff27a", glyph: "ϟ" },
+  victor:      { color: "#7dffb0", glyph: "✚" },
+  crown:       { color: "#ffd76a", accessory: "crown" },
+  radiant:     { color: "#ff9ef0", glyph: "✶" },
+  halo:        { color: "#ffe08a", accessory: "halo" },
+  blaze:       { color: "#ff5a3d", glyph: "▲" },
+  ascendant:   { color: "#ffffff", glyph: "✦" }
+};
+
+// The glow (and particles or accessory) behind/above a sprite, for a player's aura.
+function auraHtml(cosmetics, spriteSize) {
+  const look = AURA_LOOKS[cosmetics?.aura];
+  if (!look) return "";
+  const particles = look.glyph ? Array.from({ length: 4 }, () => `<i>${look.glyph}</i>`).join("") : "";
+  const accessory = look.accessory
+    ? `<div class="accessory">${accessorySvg(look.accessory, Math.max(16, Math.round(spriteSize * 0.4)))}</div>` : "";
+  return `<div class="cos-aura" style="--aura:${look.color}">${particles}</div>${accessory}`;
+}
+
+// A player's title line (colored by the tier it came from), or "".
+function titleHtml(cosmetics, className = "p-title") {
+  if (!cosmetics?.title) return "";
+  return `<span class="${className} tier-${["bronze", "silver", "gold", "legendary"][cosmetics.titleTier] ?? "bronze"}">${escapeHtml(cosmetics.title)}</span>`;
 }
 
 // Burn / Hex markers on a player (rounds left as a small number).
@@ -747,9 +781,11 @@ function renderLobby(state) {
     const id = joined[i];
     if (!id) return `<div class="roster-cell open"><span class="roster-open">${state.lastCall ? "CLOSED" : "OPEN"}</span></div>`;
     const classId = state.joinedClasses[id];
-    return `<div class="roster-cell"><span class="slot">${i + 1}</span>
-      ${spriteSvg(classId, 44, state.playerGear?.[id])}
+    const cos = state.playerCosmetics?.[id];
+    return `<div class="roster-cell${cos?.frame ? ` frame-${cos.frame}` : ""}"><span class="slot">${i + 1}</span>
+      <div class="roster-sprite">${auraHtml(cos, 44)}${spriteSvg(classId, 44, state.playerGear?.[id])}</div>
       <span class="roster-name">${escapeHtml(names[id] ?? id)}</span>
+      ${titleHtml(cos, "roster-title")}
       <span class="s-class class-${classId}">${CLASS_LABELS[classId]}<span class="s-lv">LV ${state.playerLevels?.[id] ?? 1}</span></span>
     </div>`;
   }).join("");
@@ -850,12 +886,20 @@ function raidBadges(players) {
   return { damage: top("damage"), healing: top("healing"), revives: top("revives"), daring: top("daringHits") };
 }
 
-function levelLineHtml(players) {
+function levelLineHtml(players, awards = []) {
   const levelUps = players.filter(p => p.leveledUp);
-  return levelUps.length
+  const ups = levelUps.length
     ? `<span class="level-up">LEVEL UP!</span>` + levelUps.map(p =>
         `${escapeHtml(p.name)} <span class="class-${p.classId}">${CLASS_NAMES[p.classId]} ${p.level}</span>`).join(" · ")
-    : `<span style="color:var(--text-dim)">No level-ups this time — every round fought still earned XP</span>`;
+    : "";
+  // New titles (legendary ones first) earned this fight or raid.
+  const sorted = awards.slice().sort((a, b) => b.tier - a.tier);
+  const won = sorted.length
+    ? `<span class="level-up award-label">${sorted.some(a => a.tier === 3) ? "LEGENDARY!" : "NEW TITLE!"}</span>` + sorted.map(a =>
+        `${escapeHtml(a.name)} <span class="tier-${["bronze", "silver", "gold", "legendary"][a.tier]}">"${escapeHtml(a.title)}"${a.aura ? ` + ${escapeHtml(a.aura)} aura` : ""}</span>`).join(" · ")
+    : "";
+  if (!ups && !won) return `<span style="color:var(--text-dim)">No level-ups this time — every round fought still earned XP</span>`;
+  return [ups, won].filter(Boolean).join(`<span class="strip-sep">|</span>`);
 }
 
 const pct = (x) => `×${+x.toFixed(2)}`;
@@ -941,7 +985,7 @@ function renderResults(state) {
       </div>
     </div>
     <div class="panel rs-strip">
-      <span>${levelLineHtml(r.players)}</span>
+      <span>${levelLineHtml(r.players, r.awards)}</span>
       <span class="next-lobby">${raid ? "NEXT BATTLE" : "NEXT LOBBY"} ${countdownText(state)}</span>
     </div>`;
 }
@@ -994,7 +1038,7 @@ function renderRaidSummary(state) {
       </div>
     </div>
     <div class="panel rs-strip">
-      <span>${levelLineHtml(rr.players)}</span>
+      <span>${levelLineHtml(rr.players, [...(state.fightResults?.awards ?? []), ...(rr.awards ?? [])])}</span>
       <span class="next-lobby">NEXT LOBBY ${countdownText(state)}</span>
     </div>`;
 }

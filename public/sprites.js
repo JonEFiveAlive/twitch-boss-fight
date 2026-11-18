@@ -166,6 +166,18 @@ function bossSvg(bossId, width) {
   return `<svg width="${width}" height="${height}" viewBox="0 0 32 28" shape-rendering="crispEdges" aria-hidden="true">${parts.map(rectSvg).join("")}</svg>`;
 }
 
+// Award accessories drawn above a player's head (legendary aura rewards; 8-wide grids).
+const ACCESSORY_PARTS = {
+  halo:  { w: 8, h: 3, parts: [[1,0,6,1,"#ffe08a"], [0,1,1,1,"#ffe08a"], [7,1,1,1,"#ffe08a"], [1,2,6,1,"#ffe08a"], [2,1,4,1,"#fff6cc"]] },
+  crown: { w: 8, h: 5, parts: [[0,3,8,2,"#ffd76a"], [0,1,1,2,"#ffd76a"], [3,0,2,3,"#ffd76a"], [7,1,1,2,"#ffd76a"],
+                               [1,2,1,1,"#ffd76a"], [6,2,1,1,"#ffd76a"], [3,3,2,1,"#e8433b"], [1,4,1,1,"#5aa0ff"], [6,4,1,1,"#5aa0ff"]] }
+};
+function accessorySvg(kind, width) {
+  const a = ACCESSORY_PARTS[kind];
+  if (!a) return "";
+  return `<svg width="${width}" height="${Math.round(width * a.h / a.w)}" viewBox="0 0 ${a.w} ${a.h}" shape-rendering="crispEdges" aria-hidden="true">${a.parts.map(rectSvg).join("")}</svg>`;
+}
+
 // Raid chest (16x16): wood body, gold bands and lock. `open` lifts the lid off a glow.
 const CHEST_PARTS = [
   [1, 7, 14, 8, "#7a4a22"], [1, 7, 14, 1, "#a8692f"], [2, 9, 12, 5, "#8f5726"],

@@ -81,6 +81,9 @@ function handleChatMessage(userId, displayName, message, isMod) {
     game.handleForceStart(isMod);
   } else if (["!raid", "!endraid", "!raidvote", "!enableraidvote", "!disableraidvote"].includes(text)) {
     game.handleRaidCommand(userId, text, isMod);
+  } else if (["!titles", "!title", "!aura"].includes(command)) {
+    // The original message keeps a title's capitals; matching ignores case anyway.
+    game.handleAwardCommand(userId, displayName, command, message.trim().split(/\s+/).slice(1).join(" ") || null);
   } else if (command === "!leave" || command === "!flee") {
     game.handleLeave(userId);
   } else if (["!pause", "!resume", "!skip", "!endbattle", "!kick", "!boss", "!manualmode", "!automode",

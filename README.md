@@ -66,9 +66,15 @@ enrage.
 - **Gear drops** after a win: weapons add power, armor adds defense. Better
   items are equipped automatically and drawn on your character's sprite (green,
   blue or purple for uncommon, rare and epic).
+- **Awards.** Ten award tracks (each boss, battles won, raids, Mythic raids,
+  revives, daring hits, class level) each have bronze, silver, gold and
+  legendary tiers, and every tier is a title such as Wyrmslayer, Lifesaver or
+  Raid Legend. A player's best tier frames their name on stream, and each
+  legendary tier unlocks an **aura** around their sprite (frost, embers, a halo,
+  a crown...). Players choose what to show with `!title` and `!aura`.
 - **Results screen** after every fight: loot, damage/healing stats, badges (Top
-  Damage, Top Healer, Lifesaver, Daredevil) and level-ups. A **Top Heroes**
-  leaderboard shows in the lobby.
+  Damage, Top Healer, Lifesaver, Daredevil), level-ups and new titles. A **Top
+  Heroes** leaderboard shows in the lobby.
 
 | Lobby | Victory screen |
 | --- | --- |
@@ -249,6 +255,9 @@ The lobby counts down 20 seconds after the first `!join`, then the battle starts
 | `!fire` | Mage: big damage, costs MP. |
 | `!heal [slot / name / self]`, `!revive [slot / name]` | Cleric. With no target, heals go to whoever needs it most (burning or hexed players first). |
 | `!raidvote` | Vote to make this lobby a raid (only while a mod has voting on). |
+| `!titles` | The bot lists the titles and auras you've earned (once per 30 seconds per viewer). |
+| `!title <name>` / `!title off` / `!title auto` | Show one of your titles (part of the name is enough), none, or your best one (the default). |
+| `!aura <name>` / `!aura off` / `!aura auto` | Same for your aura. |
 
 ### Mod / broadcaster commands
 
@@ -307,7 +316,8 @@ src/
   gameLoop.js     phases, timers, raids, stream controls; broadcasts state
   power.js        level + gear → player power
   loot.js         gear drops
-  progress.js     SQLite persistence: XP, levels, stats, items
+  progress.js     SQLite persistence: XP, levels, stats, items, awards
+  achievements.js award tracks, titles and auras
   server.js       web server, Socket.IO and the Twitch chat connection
   twitchAuth.js   access-token refresh
   devChat.js      offline mode's fake chat

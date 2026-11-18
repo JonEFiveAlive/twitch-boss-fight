@@ -1,6 +1,7 @@
 const { createFight, addPlayer, bossHpForParty, variantForParty, resolveRound } = require("./fight");
 const { chooseBossMove, describeMove, moveTitle } = require("./bossMoves");
 const { BOSS_IDS, BOSS_INFO, bossName, bossDisplay, findBoss } = require("./bosses");
+const { AURAS, TRACKS, awardMessage, matchName } = require("./achievements");
 const { xpForFight } = require("./progress");
 const { playerPower } = require("./power");
 const { rollDrop, makeItem, lootEligible, gearBonuses } = require("./loot");
@@ -73,6 +74,8 @@ function createGameLoop(io, { fetchAvatar = null, store = null, announce = () =>
   let fightStats = {};
   const levelCache = new Map(); // "userId:classId" -> level, cleared whenever a fight is saved
   const gearCache = new Map();  // "userId:classId" -> gearBonuses(), cleared likewise
+  const cosmeticsCache = new Map(); // userId -> store.cosmetics(), cleared when awards or choices change
+  const titlesAsked = new Map();    // userId -> when they last used !titles (it posts to chat)
   let leaderboard = store ? store.leaderboard() : [];
 
   // Raids (Phase 7). `mode` is the current lobby/fight's mode. `raid` exists from the
@@ -160,6 +163,8 @@ function createGameLoop(io, { fetchAvatar = null, store = null, announce = () =>
       playerNames: { ...playerNames },
       playerLevels: currentLevels(),
       playerGear: currentLooks(),
+      // Awards on show: { userId: { title, titleTier, aura, frame } } for visible players.
+      playerCosmetics: currentCosmetics(),
       leaderboard: phase === "lobby" || phase === "closed" ? leaderboard : null,
       mode,
       paused,
@@ -222,6 +227,51 @@ function createGameLoop(io, { fetchAvatar = null, store = null, announce = () =>
 
   function currentLevels() {
     return Object.fromEntries(visibleClasses().map(([id, classId]) => [id, levelOf(id, classId)]));
+  }
+
+  function cosmeticsOf(userId) {
+    if (!store) return null;
+    if (!cosmeticsCache.has(userId)) {
+      try {
+        cosmeticsCache.set(userId, store.cosmetics(userId));
+      } catch (err) {
+        console.error("Failed to load awards:", err.message);
+        cosmeticsCache.set(userId, null);
+      }
+    }
+    return cosmeticsCache.get(userId);
+  }
+
+  function currentCosmetics() {
+    const out = {};
+    for (const [id] of visibleClasses()) {
+      const c = cosmeticsOf(id);
+      if (c && (c.title || c.aura || c.frame)) out[id] = { title: c.title, titleTier: c.titleTier, aura: c.aura, frame: c.frame };
+    }
+    return out;
+  }
+
+  // Saves newly reached award tiers and announces them. Legendary tiers get their own
+  // line; several smaller ones in one fight share a line to spare chat.
+  function grantAwards(userIds) {
+    if (!store || !userIds.length) return [];
+    let awards = [];
+    try {
+      awards = store.checkAwards(userIds);
+    } catch (err) {
+      console.error("Failed to check awards:", err.message);
+      return [];
+    }
+    for (const a of awards) cosmeticsCache.delete(a.userId);
+    const legendary = awards.filter(a => a.tier === 3);
+    const others = awards.filter(a => a.tier < 3);
+    for (const a of legendary) announce(awardMessage(a.name, a.trackId, a.tier));
+    if (others.length === 1) announce(awardMessage(others[0].name, others[0].trackId, others[0].tier));
+    else if (others.length > 1) {
+      announce(`🏅 New titles! ${others.map(a => `${a.name}: "${TRACKS.find(t => t.id === a.trackId).titles[a.tier]}"`).join(", ")}`);
+    }
+    return awards.map(a => ({ ...a, title: TRACKS.find(t => t.id === a.trackId).titles[a.tier],
+      aura: a.tier === 3 ? AURAS[TRACKS.find(t => t.id === a.trackId).aura].name : null }));
   }
 
   // Rarity per equipped slot, so the overlay can draw each player's gear.
@@ -517,10 +567,12 @@ function createGameLoop(io, { fetchAvatar = null, store = null, announce = () =>
       announce(`⭐ Level up! ${levelUps.map(r => `${r.name} (${CLASS_NAMES[r.classId]} ${r.level})`).join(", ")}`);
     }
 
+    const awards = grantAwards([...new Set(results.map(r => r.userId))]);
+
     const speedBonus = outcome === "win" ? Math.max(0, TARGET_FIGHT_ROUNDS - rounds) * XP_SPEED_BONUS_PER_ROUND : 0;
     return {
       outcome, rounds, par: TARGET_FIGHT_ROUNDS, speedBonus,
-      bossId: fight.bossId, bossName: bossName(fight.bossId, fight.variant), players: results, badges
+      bossId: fight.bossId, bossName: bossName(fight.bossId, fight.variant), players: results, badges, awards
     };
   }
 
@@ -582,8 +634,20 @@ function createGameLoop(io, { fetchAvatar = null, store = null, announce = () =>
         ? `💀 The raid ends at battle ${raid.stage}/${RAID_LENGTH}. ${banked} banked and opened — well fought!`
         : `The raid was called off after ${raid.cleared} battle${raid.cleared === 1 ? "" : "s"} — ${banked} opened.`);
 
+    // A full clear counts toward the raid award tracks for everyone who saw it through.
+    let awards = [];
+    if (outcome === "cleared" && store) {
+      const clearers = players.filter(p => p.finished).map(p => p.userId);
+      try {
+        store.recordRaidClear(clearers, raid.tier.id);
+      } catch (err) {
+        console.error("Failed to save raid clears:", err.message);
+      }
+      awards = grantAwards(clearers);
+    }
+
     phase = "ended";
-    const raidResults = { outcome, stagesCleared: raid.cleared, stages: RAID_LENGTH, chests, players,
+    const raidResults = { outcome, stagesCleared: raid.cleared, stages: RAID_LENGTH, chests, players, awards,
       tier: raid.tier.id, lineup: raid.lineup.map(id => ({ id, name: BOSS_INFO[id].name })) };
     startTimedScreen({
       result: outcome === "cleared" ? "win" : "loss",
@@ -1012,6 +1076,52 @@ function createGameLoop(io, { fetchAvatar = null, store = null, announce = () =>
       ?? unique(entries.filter(([, name]) => name.includes(query)));
   }
 
+  // !titles (list what you've earned; posts to chat, so once per TITLES_COOLDOWN_MS),
+  // !title <name | off | auto>, !aura <name | off | auto>. Choosing is silent: the
+  // overlay shows the change.
+  const TITLES_COOLDOWN_MS = 30000;
+  function handleAwardCommand(userId, displayName, command, arg) {
+    if (!store) return;
+    playerNames[userId] ??= displayName;
+    cosmeticsCache.delete(userId); // rare commands: always read the latest from the store
+    const c = cosmeticsOf(userId);
+    if (!c) return;
+    if (command === "!titles") {
+      const now = Date.now();
+      if (now - (titlesAsked.get(userId) ?? 0) < TITLES_COOLDOWN_MS) return;
+      titlesAsked.set(userId, now);
+      if (!c.titles.length) {
+        announce(`${displayName} has no titles yet — win fights, revive allies and clear raids to earn them!`);
+        return;
+      }
+      const shown = c.titles.slice(0, 8).map(t => t.title).join(", ") + (c.titles.length > 8 ? ` +${c.titles.length - 8} more` : "");
+      const auras = c.auras.length ? ` · Auras: ${c.auras.map(a => AURAS[a].name).join(", ")}` : "";
+      announce(`${displayName}'s titles: ${shown} (showing: ${c.title ?? "none"})${auras} · !title <name> / !aura <name> to choose`);
+      return;
+    }
+    const choice = (arg ?? "").trim();
+    if (!choice) return;
+    // "" = show none, null = automatic (the best earned), else a title / aura id they own.
+    let value;
+    if (/^(off|none)$/i.test(choice)) value = "";
+    else if (/^auto$/i.test(choice)) value = null;
+    else {
+      const owned = command === "!title" ? c.titles.map(t => t.title) : c.auras.map(a => AURAS[a].name);
+      const match = matchName(choice, owned);
+      if (!match) return; // not one they've earned (or ambiguous)
+      value = command === "!title" ? match : Object.keys(AURAS).find(id => AURAS[id].name === match);
+    }
+    try {
+      if (command === "!title") store.setTitle(userId, value);
+      else store.setAura(userId, value);
+    } catch (err) {
+      console.error("Failed to save award choice:", err.message);
+      return;
+    }
+    cosmeticsCache.delete(userId);
+    broadcastState();
+  }
+
   // Mod controls: !pause / !resume (any countdown), !skip (move on now), !endbattle
   // (call off the fight or raid in progress), !kick <name|slot>.
   function handleModCommand(command, arg, isMod) {
@@ -1131,7 +1241,7 @@ function createGameLoop(io, { fetchAvatar = null, store = null, announce = () =>
   }
 
   return {
-    handleJoin, handleAction, handleForceStart, handleRaidCommand, handleLeave, handleModCommand,
+    handleJoin, handleAction, handleForceStart, handleRaidCommand, handleLeave, handleModCommand, handleAwardCommand,
     getState: () => lastState
   };
 }
