@@ -203,7 +203,14 @@ before wiring up OBS — much faster to iterate on.
   (`openProgressStore(":memory:")`), so the whole suite takes about a second.
   Each `check(label, ok)` registers its own test. Run `npm test` after any change
   and add checks for new behavior. For quick experiments, an inline
-  `node -e "..."` simulation is still fine.
+  `node -e "..."` simulation is still fine. GitHub Actions
+  (`.github/workflows/ci.yml`) runs `npm test` on Node 22 and 26 for every
+  push and pull request.
+- Versioning is GitVersion semver from git history (`GitVersion.yml`): each
+  push to main that passes CI is tagged `vX.Y.Z` and gets a GitHub Release.
+  Commits bump the patch by default; put `+semver: minor` / `+semver: major`
+  (or a `feat:` / `feat!:` prefix) in a commit message for bigger bumps, or
+  `+semver: none` to skip. Tags, not package.json, are the source of truth.
 - No linter/formatter configured yet — match the existing style (2-space
   indent, semicolons, double quotes) if adding new files.
 - Never commit `.env` — it holds real Twitch credentials. `.env.example` is the

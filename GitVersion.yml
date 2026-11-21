@@ -1,0 +1,19 @@
+# GitVersion (6.x) works out the semantic version from git history: the last
+# vX.Y.Z tag plus the commits since it. CI tags each push to main with the result.
+#
+# Every commit bumps the patch version by default. To bump more, put one of
+# these anywhere in a commit message (the highest bump since the last tag wins):
+#   +semver: major   (or +semver: breaking, or a "feat!:" / "fix!:" prefix)
+#   +semver: minor   (or +semver: feature, or a "feat:" prefix)
+#   +semver: patch   (or +semver: fix)
+#   +semver: none    (or +semver: skip) - no bump for this commit
+workflow: GitHubFlow/v1
+
+# Starting point while the repo has no version tags yet (matches package.json).
+# Ignored once a higher vX.Y.Z tag exists.
+next-version: 0.1.0
+
+major-version-bump-message: '\+semver:\s?(breaking|major)|^[a-z]+(\([^)]*\))?!:'
+minor-version-bump-message: '\+semver:\s?(feature|minor)|^feat(\([^)]*\))?:'
+patch-version-bump-message: '\+semver:\s?(fix|patch)'
+no-bump-message: '\+semver:\s?(none|skip)'
