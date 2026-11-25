@@ -600,7 +600,10 @@ function formation(count) {
   const large = count <= COMPACT_PARTY_SIZE;
   const spriteSize = large ? 80 : 56;
   const unitW = large ? 140 : 116;
-  const unitH = large ? 146 : 108;
+  // Row step = a unit's full height, so a title never runs into the action bubble of
+  // the unit below. Measured: large 155px (bubble, sprite, framed name, title; small
+  // units have no title) and small 106px; a few px spare.
+  const unitH = large ? 158 : 108;
   if (count === 0) return { large, spriteSize, unitW, positions: [] };
 
   const rows = Math.min(count, large ? 2 : 3);
@@ -608,7 +611,9 @@ function formation(count) {
   const fieldW = partyFieldEl.clientWidth;
   const fieldH = partyFieldEl.clientHeight;
   const colStep = cols > 1 ? Math.min(large ? 160 : 130, (fieldW - unitW) / (cols - 1)) : 0;
-  const stagger = cols > 1 ? unitH / 2 : 0;
+  // Every other column drops by half a row, or less if that would run off the field
+  // (columns sit side by side, so a smaller stagger can't make units overlap).
+  const stagger = cols > 1 ? Math.max(0, Math.min(unitH / 2, fieldH - rows * unitH)) : 0;
   const left0 = Math.max(0, (fieldW - ((cols - 1) * colStep + unitW)) / 2);
   const top0 = Math.max(0, (fieldH - (rows * unitH + stagger)) / 2);
 
