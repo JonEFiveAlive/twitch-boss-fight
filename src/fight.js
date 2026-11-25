@@ -22,7 +22,10 @@ const {
   DEFEND_RECOVERY_PERCENT,
   WINDUP_BONUS_MULTIPLIER,
   BOLD_COUNTER_MULTIPLIER,
-  BOLD_POWER_MULTIPLIER
+  BOLD_POWER_MULTIPLIER,
+  NPC_REVIVE_GRACE_ROUNDS,
+  NPC_RAID_TIER_CAP,
+  RAID_TIERS
 } = require("./gameConfig");
 
 // Player damage multipliers by boss move: the windup leaves the boss open, and
@@ -57,12 +60,14 @@ const damageTaken = (bossId, type) => BOSSES[bossId].damageTaken?.[type] ?? 1;
 
 // `power` (see power.js) scales max HP here, and damage/healing in resolveRound.
 // `defense` (from armor, see loot.js) is the share of every boss hit that's blocked.
-function newPlayer(name, classId, slot, power = 1, defense = 0) {
+// `npc`: an NPC ally (see npc.js), played by script rather than chat.
+function newPlayer(name, classId, slot, power = 1, defense = 0, npc = false) {
   const stats = CLASSES[classId];
   const maxHp = Math.round(stats.maxHp * power);
   return {
     name,
     classId,
+    npc,
     power,
     defense,
     hp: maxHp,
@@ -94,23 +99,40 @@ function expectedDamageVs(bossId, classId) {
 
 // A party without a Cleric can't out-heal the full boss at any level (hits scale with
 // each player's power, so leveling doesn't make anyone relatively tougher): Lesser.
-// Otherwise strong parties (by average power) face Powerful.
+// Otherwise strong parties (by average power) face Powerful. An NPC Cleric counts as a
+// Cleric, but NPCs don't count toward the average: they'd only drag it down.
 function variantForParty(members) {
   if (!members.some(m => m.classId === "cleric")) return "lesser";
-  const avgPower = members.reduce((sum, m) => sum + (m.power ?? 1), 0) / members.length;
+  const players = members.some(m => !m.npc) ? members.filter(m => !m.npc) : members;
+  const avgPower = players.reduce((sum, m) => sum + (m.power ?? 1), 0) / players.length;
   return avgPower >= POWERFUL_MIN_AVG_POWER ? "powerful" : "standard";
 }
 
+// The raid tier for a roster (see RAID_TIERS): the first whose minAvgPower the
+// players' average power reaches (NPCs don't count). Always Normal for a party without
+// a Cleric (it faces Lesser bosses); a party with NPC allies gets NPC_RAID_TIER_CAP at most.
+function raidTierFor(roster) {
+  const normal = RAID_TIERS[RAID_TIERS.length - 1];
+  const players = roster.filter(r => !r.npc);
+  if (!players.length || variantForParty(roster) === "lesser") return normal;
+  const avg = players.reduce((sum, r) => sum + (r.power ?? 1), 0) / players.length;
+  let tier = RAID_TIERS.find(t => avg >= t.minAvgPower) ?? normal;
+  // RAID_TIERS runs from the top tier down, so a later index is a lower tier.
+  const capIndex = RAID_TIERS.findIndex(t => t.id === NPC_RAID_TIER_CAP);
+  if (players.length < roster.length && capIndex > RAID_TIERS.indexOf(tier)) tier = RAID_TIERS[capIndex];
+  return tier;
+}
+
 /**
- * Creates a fresh fight state from the joined roster: [{ id, name, classId, power?, defense? }],
+ * Creates a fresh fight state from the joined roster: [{ id, name, classId, power?, defense?, npc? }],
  * where id is the Twitch user ID (the key everywhere) and name is the display name.
  * Slot numbers (1-based) are assigned by join order and used for !heal/!revive targeting.
  * options.hpMultiplier / damageMultiplier scale the boss (raid stages); both default to 1.
  */
 function createFight(roster, { bossId = "frost_wyrm", hpMultiplier = 1, damageMultiplier = 1 } = {}) {
   const players = {};
-  roster.forEach(({ id, name, classId, power, defense }, index) => {
-    players[id] = newPlayer(name, classId, index + 1, power, defense);
+  roster.forEach(({ id, name, classId, power, defense, npc }, index) => {
+    players[id] = newPlayer(name, classId, index + 1, power, defense, Boolean(npc));
   });
   const bossHP = Math.round(bossHpForParty(roster, bossId) * hpMultiplier);
 
@@ -127,6 +149,8 @@ function createFight(roster, { bossId = "frost_wyrm", hpMultiplier = 1, damageMu
     // How many party slots the boss's HP already accounts for. Refilling a freed
     // slot is free; only growing the party past this adds boss HP.
     fundedSlots: roster.length,
+    // Rounds since every player (not NPC) fell, while an NPC Cleric still stands.
+    wipeRounds: 0,
     players,
     log: []
   };
@@ -479,14 +503,30 @@ function resolveRound(fight, actions, rng = Math.random) {
   fight.round += 1;
 
   // --- Determine outcome ---
+  // With every player down the fight is lost, unless an NPC Cleric still stands: it
+  // gets NPC_REVIVE_GRACE_ROUNDS more rounds to bring someone back.
   let outcome = "ongoing";
+  const living = livingPlayerIds(fight);
   if (fight.bossHP <= 0) {
     outcome = "win";
-  } else if (livingPlayerIds(fight).length === 0) {
-    outcome = "loss";
+  } else if (!living.some(id => !fight.players[id].npc)) {
+    const reviver = living.map(id => fight.players[id]).find(p => p.classId === "cleric");
+    fight.wipeRounds += 1;
+    const roundsLeft = NPC_REVIVE_GRACE_ROUNDS + 1 - fight.wipeRounds;
+    if (!reviver || roundsLeft <= 0) {
+      outcome = "loss";
+    } else {
+      const line = fight.wipeRounds === 1
+        ? `Every hero has fallen! ${reviver.name} has ${roundsLeft} round${roundsLeft === 1 ? "" : "s"} to revive someone!`
+        : `${reviver.name} has ${roundsLeft} round${roundsLeft === 1 ? "" : "s"} left to revive someone!`;
+      log.push(line);
+      fight.log.push(line);
+    }
+  } else {
+    fight.wipeRounds = 0;
   }
 
   return { fight, log, outcome, bossMove: move, resolutionEvents };
 }
 
-module.exports = { createFight, addPlayer, bossHpForParty, variantForParty, resolveRound, livingPlayerIds };
+module.exports = { createFight, addPlayer, bossHpForParty, variantForParty, raidTierFor, resolveRound, livingPlayerIds };

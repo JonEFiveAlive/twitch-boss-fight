@@ -315,6 +315,60 @@ html::after {
   display: block;
 }
 
+/* Idle motion, pixel-art style: no stretching. The sprite's upper body (head, torso,
+   weapon; see spriteSvg) drops one sprite-pixel onto planted legs and snaps back, a
+   stiff two-pose breath like a retro battle idle. In an SVG, CSS px are sprite-grid
+   units, so 1px here is one pixel of the 16x16 art. Each slot is a little out of step,
+   and the phase comes from --clock (see renderBattlefield), so rebuilding a unit
+   doesn't restart it. */
+.unit-sprite > svg .sprite-upper {
+  animation: idle-breathe 0.9s steps(1, end) infinite;
+  animation-delay: calc(var(--clock, 0ms) + var(--idle-offset, 0ms));
+}
+.unit.fallen .unit-sprite > svg .sprite-upper { animation: none; } /* tombstones stay still */
+/* At 25% HP or less: hunched forward (toward the boss) and heaving, slower and deeper. */
+.unit.weary .unit-sprite > svg .sprite-upper { animation-name: idle-weary; animation-duration: 1.2s; }
+
+@keyframes idle-breathe {
+  0%   { transform: translate(0, 0); }
+  50%  { transform: translate(0, 1px); }
+}
+@keyframes idle-weary {
+  0%   { transform: translate(-1px, 1px); }
+  50%  { transform: translate(-1px, 2px); }
+}
+
+/* The idle moves art up to 2 sprite-pixels down, past the 16x16 frame (staffs reach
+   the bottom row), so let it draw outside instead of clipping. */
+.unit-sprite > svg { overflow: visible; }
+
+/* A crown or halo rides along with the head: the same steps, in screen pixels
+   (--sprite-px, set per unit), on top of its own gentle float. */
+.unit-sprite .accessory svg {
+  animation: idle-follow 0.9s steps(1, end) infinite;
+  animation-delay: calc(var(--clock, 0ms) + var(--idle-offset, 0ms));
+}
+.unit.weary .unit-sprite .accessory svg { animation-name: idle-follow-weary; animation-duration: 1.2s; }
+@keyframes idle-follow {
+  0%   { transform: translate(0, 0); }
+  50%  { transform: translate(0, var(--sprite-px)); }
+}
+@keyframes idle-follow-weary {
+  0%   { transform: translate(calc(-1 * var(--sprite-px)), var(--sprite-px)); }
+  50%  { transform: translate(calc(-1 * var(--sprite-px)), calc(2 * var(--sprite-px))); }
+}
+
+/* The boss breathes too (slower and bigger); its attack animations move #bossSprite
+   itself, so the two combine. */
+#bossSprite svg {
+  transform-origin: 50% 100%;
+  animation: boss-idle 3.6s ease-in-out infinite;
+}
+@keyframes boss-idle {
+  0%, 100% { transform: translateY(0) scale(1, 1); }
+  50%      { transform: translateY(-6px) scale(1.01, 1.025); }
+}
+
 /* Glow behind the sprite: blue while defending, red while taunting. */
 .aura {
   position: absolute;
@@ -326,10 +380,12 @@ html::after {
 .unit.anim-shielded .aura {
   background: rgba(80, 150, 255, 0.14);
   animation: shield-glow 1.1s ease-in-out infinite;
+  animation-delay: var(--clock, 0ms);
 }
 
 .unit.anim-taunting .aura {
   animation: taunt-glow 1.1s ease-in-out infinite;
+  animation-delay: var(--clock, 0ms);
 }
 
 /* Red corner brackets around the player Frost Breath is aimed at. */
@@ -1079,6 +1135,77 @@ html::after {
   100% { opacity: 0; transform: translateX(-50%) translateY(-70px) scale(0.9); }
 }
 
+/* ─── Battle effects: projectiles, slashes, bursts (see launchProjectile) ─── */
+
+.fx {
+  position: absolute;
+  pointer-events: none;
+  z-index: 90;
+  --fx: #ffffff;
+}
+
+/* A glowing ball with a tail; it's rotated to face its target, so the tail trails. */
+.projectile.orb {
+  width: var(--size);
+  height: var(--size);
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffffff 0 22%, var(--fx) 48%, transparent 74%);
+  box-shadow: 0 0 10px 3px var(--fx);
+}
+.projectile.orb::after {
+  content: "";
+  position: absolute;
+  right: 50%;
+  top: 50%;
+  width: calc(var(--size) * 2.6);
+  height: calc(var(--size) * 0.45);
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: linear-gradient(to left, var(--fx), transparent);
+  opacity: 0.75;
+}
+
+/* Chain Lightning: a bright streak. */
+.projectile.zap {
+  width: var(--size);
+  height: 4px;
+  border-radius: 2px;
+  background: #ffffff;
+  box-shadow: 0 0 6px 2px var(--fx), 0 0 14px 4px var(--fx);
+}
+
+/* Hex: the purple skull floats over. */
+.projectile.hex { color: var(--fx); filter: drop-shadow(0 0 4px var(--fx)); }
+.projectile.hex svg { display: block; }
+
+.burst {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 3px solid var(--fx);
+  box-shadow: 0 0 10px var(--fx);
+  transform: translate(-50%, -50%);
+  animation: fx-burst 0.35s ease-out forwards;
+}
+@keyframes fx-burst {
+  from { transform: translate(-50%, -50%) scale(0.4); opacity: 1; }
+  to   { transform: translate(-50%, -50%) scale(3.6); opacity: 0; }
+}
+
+.slash {
+  width: var(--len, 70px);
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, transparent, #ffffff 40%, var(--fx) 65%, transparent);
+  box-shadow: 0 0 8px var(--fx);
+  animation: fx-slash 0.32s ease-out forwards;
+}
+@keyframes fx-slash {
+  0%   { transform: translate(-50%, -50%) rotate(-35deg) scaleX(0);   opacity: 1; }
+  45%  { transform: translate(-50%, -50%) rotate(-35deg) scaleX(1);   opacity: 1; }
+  100% { transform: translate(-50%, -50%) rotate(-35deg) scaleX(1.1); opacity: 0; }
+}
+
 /* ─── Player / boss animations ───────────────────────────────────────────── */
 
 @keyframes unit-enter {
@@ -1496,7 +1623,14 @@ html::after {
 .sb b { font-family: 'Press Start 2P', monospace; font-size: 7px; font-weight: normal; }
 .sb.burn  { color: #ffb070; border: 1px solid rgba(255, 154, 61, 0.7); }
 .sb.curse { color: #d9c2ff; border: 1px solid rgba(195, 155, 255, 0.7); }
-.s-aff { font-size: 15px; }
+/* Status window: name and Burn/Hex icons share a cell; only the name truncates. */
+.s-name-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.s-name-cell .s-name { min-width: 0; }
+.s-aff { display: flex; align-items: center; gap: 3px; flex: none; font-size: 15px; line-height: 1; }
+/* The Hex skull: solid purple with a glow so it reads over sprites and dark panels. */
+.st-icon { display: inline-flex; }
+.st-icon svg { display: block; }
+.st-icon.curse { color: #c39bff; filter: drop-shadow(0 0 2px rgba(195, 155, 255, 0.9)); }
 
 .rt-boss svg { display: block; }
 .rt-node:not(.next):not(.cleared) .rt-boss { opacity: 0.55; }
@@ -1566,6 +1700,7 @@ html::after {
   background: radial-gradient(ellipse at 50% 65%, var(--aura) 0%, transparent 68%);
   opacity: 0.35;
   animation: aura-pulse 2.6s ease-in-out infinite;
+  animation-delay: var(--clock, 0ms);
 }
 .cos-aura i {
   position: absolute;
@@ -1578,10 +1713,11 @@ html::after {
   opacity: 0;
   animation: aura-rise 2.8s linear infinite;
 }
-.cos-aura i:nth-child(1) { left: 6%;  animation-delay: 0s; }
-.cos-aura i:nth-child(2) { left: 30%; animation-delay: 0.7s; }
-.cos-aura i:nth-child(3) { left: 58%; animation-delay: 1.4s; }
-.cos-aura i:nth-child(4) { left: 84%; animation-delay: 2.1s; }
+/* Delays ride on --clock (see renderBattlefield) so particles don't restart on every update. */
+.cos-aura i:nth-child(1) { left: 6%;  animation-delay: var(--clock, 0ms); }
+.cos-aura i:nth-child(2) { left: 30%; animation-delay: calc(var(--clock, 0ms) + 0.7s); }
+.cos-aura i:nth-child(3) { left: 58%; animation-delay: calc(var(--clock, 0ms) + 1.4s); }
+.cos-aura i:nth-child(4) { left: 84%; animation-delay: calc(var(--clock, 0ms) + 2.1s); }
 @keyframes aura-pulse {
   0%, 100% { opacity: 0.35; transform: scale(0.95); }
   50%      { opacity: 0.6; transform: scale(1.05); }
@@ -1600,6 +1736,7 @@ html::after {
   transform: translateX(-50%);
   filter: drop-shadow(0 0 4px rgba(255, 224, 138, 0.8));
   animation: accessory-bob 2.4s ease-in-out infinite;
+  animation-delay: var(--clock, 0ms);
   pointer-events: none;
   z-index: 1;
 }
@@ -1611,3 +1748,20 @@ html::after {
 
 .award-label { color: #ff9ef0; text-shadow: 0 0 8px rgba(255, 158, 240, 0.6); }
 .strip-sep { color: var(--text-dim); margin: 0 10px; }
+
+/* ─── NPC allies (src/npc.js): see-through sprites and an ALLY tag ─────────── */
+/* Just the sprite itself, so Burn/Hex badges and target reticles stay fully visible. */
+.unit.npc .unit-sprite > svg,
+.status-row.npc > svg,
+.roster-cell.npc .roster-sprite { opacity: 0.6; }
+.roster-cell.npc { border-style: dotted; }
+.ally-tag {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: #9fd8cb;
+  border: 1px solid #4a7a70;
+  padding: 2px 3px;
+  margin-left: 4px;
+  line-height: 1;
+}
+.status-row.npc .s-lv { color: #9fd8cb; }

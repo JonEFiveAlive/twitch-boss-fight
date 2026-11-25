@@ -17,7 +17,10 @@
 //      bosses, and the party's raid tier damage applies)
 //
 // Party members are "class@level+rarity" — level defaults to 1; "+rare" etc. equips a
-// full set of that rarity (trinket as defense). Styles:
+// full set of that rarity (trinket as defense). A party ending in "+npcs" gets the NPC
+// allies the game would give it (src/npc.js), played by npcAction() whatever the style
+// (with its own NPC_ERROR_RATE slips).
+// Styles:
 //   sensible - reads every warning: braces for a strike (or a Tank taunts it) or a
 //              chain, defends through power attacks, counters and eruptions, Clerics
 //              revive, then heal (burning / hexed players first)
@@ -48,7 +51,15 @@ const PARTIES = {
   "TMC @50+epic": ["tank@50+epic", "mage@50+epic", "cleric@50+epic"],
   "TTMMC @50+epic": ["tank@50+epic", "tank@50+epic", "mage@50+epic", "mage@50+epic", "cleric@50+epic"],
   "TTM no cleric @50+epic": ["tank@50+epic", "tank@50+epic", "mage@50+epic"],
-  "geared vet + new TMC": ["tank@50+epic", "mage@1", "cleric@50+epic"]
+  "geared vet + new TMC": ["tank@50+epic", "mage@1", "cleric@50+epic"],
+  // NPC allies fill in the missing classes (see NPC_* in gameConfig.js).
+  "solo tank +npcs": ["tank", "+npcs"],
+  "solo mage +npcs": ["mage", "+npcs"],
+  "solo cleric +npcs": ["cleric", "+npcs"],
+  "TM +npcs": ["tank", "mage", "+npcs"],
+  "MM +npcs": ["mage", "mage", "+npcs"],
+  "solo tank @50 +npcs": ["tank@50", "+npcs"],
+  "TM @50+epic +npcs": ["tank@50+epic", "mage@50+epic", "+npcs"]
 };
 
 function parseArgs(argv) {
@@ -77,12 +88,13 @@ for (const assignment of opts.sets) {
   parent[keys[keys.length - 1]] = JSON.parse(raw);
   console.log(`override: ${keyPath} = ${raw}`);
 }
-const { createFight, resolveRound, variantForParty } = require("../src/fight");
+const { createFight, resolveRound, raidTierFor } = require("../src/fight");
 const { BOSS_IDS } = require("../src/bosses");
 const { chooseBossMove } = require("../src/bossMoves");
 const { playerPower } = require("../src/power");
 const { gearBonuses } = require("../src/loot");
-const { FIRE_MP_COST, REVIVE_MP_COST, GEAR_SLOTS, LOOT_RARITIES } = config;
+const { sensibleAction, naiveAction, npcAction, npcAlliesFor } = require("../src/npc");
+const { FIRE_MP_COST, GEAR_SLOTS, LOOT_RARITIES } = config;
 
 // A full set of one rarity (trinket rolled as defense) -> { power, defense }.
 function fullSet(rarityId) {
@@ -95,38 +107,6 @@ function fullSet(rarityId) {
 let seed = opts.seed;
 const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
 
-function sensibleAction(fight, id, move) {
-  const p = fight.players[id];
-  const players = Object.entries(fight.players);
-  const living = players.filter(([, q]) => q.alive);
-  const fallen = players.filter(([, q]) => !q.alive);
-  const hurt = living.filter(([, q]) => q.hp / q.maxHp < 0.6 || q.burn > 0 || q.curse > 0);
-  const firstTank = living.find(([, q]) => q.classId === "tank")?.[0];
-  const strikeTargets = move.id === "strike" ? move.targetIds : [];
-  // An untargeted first Tank covers the first non-Tank target; every other target braces.
-  const covered = firstTank && !strikeTargets.includes(firstTank)
-    ? strikeTargets.find(t => fight.players[t].classId !== "tank") : null;
-  const mustBrace = (strikeTargets.includes(id) && id !== covered) ||
-    (move.id === "chain" && move.targetIds.includes(id));
-  const braceAll = move.id === "power" || move.id === "counter" || move.id === "eruption";
-
-  if (p.classId === "cleric") {
-    if (fallen.length && p.mp >= REVIVE_MP_COST) return "revive";
-    if (move.id === "eruption") return "defend";
-    if (hurt.length || move.id === "storm") return "heal";
-    if (braceAll || mustBrace) return "defend";
-    return "attack";
-  }
-  if (id === firstTank && !strikeTargets.includes(id) && (move.id === "power" || covered)) return "taunt";
-  if (braceAll || mustBrace) return "defend";
-  if (move.id === "swipe" && p.hp / p.maxHp < 0.3) return "defend";
-  // Burning or hexed with no Cleric to lift it: defend to recover while it runs out.
-  const clericUp = living.some(([, q]) => q.classId === "cleric");
-  if (!clericUp && (p.burn > 0 || p.curse > 0) && p.hp / p.maxHp < 0.5) return "defend";
-  if (p.classId === "mage") return p.mp >= FIRE_MP_COST ? "fire" : "attack";
-  return "attack";
-}
-
 function riskyAction(fight, id, move) {
   const p = fight.players[id];
   if (p.classId !== "cleric" && (move.id === "counter" || move.id === "power")) {
@@ -135,29 +115,29 @@ function riskyAction(fight, id, move) {
   return sensibleAction(fight, id, move);
 }
 
-function naiveAction(fight, id) {
-  const p = fight.players[id];
-  if (p.classId === "cleric") {
-    const hurt = Object.values(fight.players).some(q => q.alive && q.hp / q.maxHp < 0.6);
-    return hurt ? "heal" : "attack";
-  }
-  if (p.classId === "mage") return p.mp >= FIRE_MP_COST ? "fire" : "attack";
-  return "attack";
-}
 
-function playFight(members, style, stage = null, bossId = "frost_wyrm") {
-  const roster = members.map((m, i) => {
+// "class@level+rarity" members -> createFight's roster, plus NPC allies for "+npcs".
+function buildRoster(members) {
+  const players = members.filter(m => m !== "+npcs").map((m, i) => {
     const [spec, rarity] = m.split("+");
     const [classId, level = "1"] = spec.split("@");
     const gear = fullSet(rarity);
     return { id: `p${i}`, name: `p${i}`, classId, power: playerPower(Number(level), gear.power), defense: gear.defense };
   });
-  const fight = createFight(roster, { bossId, ...(stage ?? {}) });
+  return members.includes("+npcs") ? [...players, ...npcAlliesFor(players)] : players;
+}
+
+function playFight(members, style, stage = null, bossId = "frost_wyrm") {
+  const fight = createFight(buildRoster(members), { bossId, ...(stage ?? {}) });
   let outcome = "ongoing", kos = 0, revives = 0;
   while (outcome === "ongoing" && fight.round <= 80) {
     fight.nextMove = chooseBossMove(fight, rand);
     const actions = {};
     for (const id of Object.keys(fight.players).filter(pid => fight.players[pid].alive)) {
+      if (fight.players[id].npc) {
+        actions[id] = npcAction(fight, id, fight.nextMove, rand);
+        continue;
+      }
       const r = style === "sloppy" ? rand() : 1;
       if (r < 0.15) continue; // missed turn -> defend
       const type = r < 0.45 ? naiveAction(fight, id)
@@ -165,10 +145,11 @@ function playFight(members, style, stage = null, bossId = "frost_wyrm") {
                  : sensibleAction(fight, id, fight.nextMove);
       actions[id] = { type, targetId: null };
     }
-    const aliveBefore = Object.keys(fight.players).filter(pid => fight.players[pid].alive);
+    // KOs and revives count players only, so NPC parties compare with all-player ones.
+    const aliveBefore = Object.keys(fight.players).filter(pid => fight.players[pid].alive && !fight.players[pid].npc);
     const res = resolveRound(fight, actions, rand);
     outcome = res.outcome;
-    revives += res.resolutionEvents.filter(e => e.type === "player_revive").length;
+    revives += res.resolutionEvents.filter(e => e.type === "player_revive" && !fight.players[e.targetId].npc).length;
     kos += aliveBefore.filter(pid => !fight.players[pid].alive).length;
   }
   return { rounds: fight.round - 1, outcome, kos, revives, hp: fight.bossMaxHP, variant: fight.variant };
@@ -176,17 +157,8 @@ function playFight(members, style, stage = null, bossId = "frost_wyrm") {
 
 const BOSS_LIST = opts.boss === "all" ? BOSS_IDS : [opts.boss];
 
-// The raid tier this party would get (see RAID_TIERS), from the same roster maths.
-function raidTier(members) {
-  const roster = members.map(m => {
-    const [spec, rarity] = m.split("+");
-    const [classId, level = "1"] = spec.split("@");
-    return { classId, power: playerPower(Number(level), fullSet(rarity).power) };
-  });
-  const avg = roster.reduce((sum, r) => sum + r.power, 0) / roster.length;
-  if (variantForParty(roster) === "lesser") return config.RAID_TIERS.find(t => t.id === "normal");
-  return config.RAID_TIERS.find(t => avg >= t.minAvgPower);
-}
+// The raid tier this party would get (see RAID_TIERS), exactly as the game picks it.
+const raidTier = (members) => raidTierFor(buildRoster(members));
 
 if (opts.raid) {
   // Stages are independent (full restore between battles), so the chance of reaching

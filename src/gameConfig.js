@@ -131,6 +131,30 @@ module.exports = {
   TARGET_FIGHT_ROUNDS: 15,       // intended fight length (~5 min); sizes starting boss HP and HP added for mid-fight joiners
   MIN_JOIN_ROUNDS: 3,            // a late joiner always adds at least this many rounds' worth of boss HP
 
+  // NPC allies (src/npc.js). When a battle starts with NPC_FILL_MAX_HUMANS players or
+  // fewer, NPCs fill the classes the party lacks (in NPC_FILL_ORDER) up to
+  // NPC_PARTY_SIZE, so a solo player still gets a Cleric (and the Standard boss).
+  // NPCs fight at NPC_POWER_SHARE of the players' average power, earn nothing, and
+  // play by script: brace for what's announced, never take a hit that could kill
+  // them, Clerics revive players first. If every player is down while an NPC Cleric
+  // stands, it gets NPC_REVIVE_GRACE_ROUNDS rounds (NPC_ONLY_INPUT_SECONDS each,
+  // since nobody is typing) to revive someone before the fight is lost.
+  NPC_ALLIES_DEFAULT: true,      // mods toggle with !npcs on / !npcs off
+  NPC_FILL_MAX_HUMANS: 2,
+  NPC_PARTY_SIZE: 3,
+  NPC_FILL_ORDER: ["cleric", "tank", "mage"],
+  NPC_POWER_SHARE: 0.9,
+  // Chance per round that an NPC slips and ignores the boss's warning, like a
+  // careless chatter; a slip can get it killed. Never while a revive is at stake (a
+  // Cleric NPC about to revive, or the grace after every player fell). Keeps NPCs
+  // better than most chat, but fallible.
+  NPC_ERROR_RATE: 0.1,
+  // The highest raid tier (see RAID_TIERS) a party with NPC allies can get: "normal",
+  // "heroic", or "mythic" (no cap). NPCs rarely slip, so they make high tiers easier.
+  NPC_RAID_TIER_CAP: "heroic",
+  NPC_REVIVE_GRACE_ROUNDS: 3,
+  NPC_ONLY_INPUT_SECONDS: 3,
+
   // Level-based power (Phase 5b). A player's power multiplies their max HP, damage
   // and healing. It grows fastest early and stops at the stat cap (+30%), leaving
   // room for gear's +20% in Phase 6 inside the 1.5× power band. Levels past the cap
@@ -199,10 +223,11 @@ module.exports = {
   RAID_CLEAR_BONUS_CHESTS: 1,
   RAID_CHEST_LUCK_STEP: 0.2,
   // Raid tier, fixed when the raid starts: the first tier whose minAvgPower the
-  // party's average power reaches (a party without a Cleric is always Normal — it
-  // faces Lesser bosses). Heroic is the Powerful-boss threshold. Tiers multiply chest
-  // luck (on top of the per-chest step; at Mythic the last chests never roll common)
-  // and boss damage. Nobody is ever kept out: the tier follows whoever joined.
+  // players' average power reaches (a party without a Cleric is always Normal — it
+  // faces Lesser bosses; one with NPC allies goes no higher than NPC_RAID_TIER_CAP).
+  // Heroic is the Powerful-boss threshold. Tiers multiply chest luck (on top of the
+  // per-chest step; at Mythic the last chests never roll common) and boss damage.
+  // Nobody is ever kept out: the tier follows whoever joined.
   RAID_TIERS: [
     { id: "mythic", minAvgPower: 1.30, damageMultiplier: 1.1, chestLuck: 1.5 },
     { id: "heroic", minAvgPower: 1.14, damageMultiplier: 1.0, chestLuck: 1.25 },

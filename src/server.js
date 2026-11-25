@@ -6,6 +6,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const tmi = require("tmi.js");
 const { createGameLoop } = require("./gameLoop");
+const { parseChatMessage } = require("./chatCommands");
 const { refreshAccessToken } = require("./twitchAuth");
 const { startDevChat } = require("./devChat");
 const { openProgressStore } = require("./progress");
@@ -68,10 +69,9 @@ function announce(text) {
 let currentAccessToken = null;
 let currentRefreshToken = process.env.TWITCH_REFRESH_TOKEN;
 
+// Aliases (!a -> !attack) and stray invisible characters are handled by parseChatMessage.
 function handleChatMessage(userId, displayName, message, isMod) {
-  const text = message.trim().toLowerCase();
-  const [command, ...rest] = text.split(/\s+/);
-  const arg = rest.join(" ") || null;
+  const { text, command, arg, rawArg } = parseChatMessage(message);
 
   if (command === "!join") {
     game.handleJoin(userId, displayName, arg);
@@ -83,11 +83,11 @@ function handleChatMessage(userId, displayName, message, isMod) {
     game.handleRaidCommand(userId, text, isMod);
   } else if (["!titles", "!title", "!aura"].includes(command)) {
     // The original message keeps a title's capitals; matching ignores case anyway.
-    game.handleAwardCommand(userId, displayName, command, message.trim().split(/\s+/).slice(1).join(" ") || null);
+    game.handleAwardCommand(userId, displayName, command, rawArg);
   } else if (command === "!leave" || command === "!flee") {
     game.handleLeave(userId);
   } else if (["!pause", "!resume", "!skip", "!endbattle", "!kick", "!boss", "!manualmode", "!automode",
-                "!closequeue", "!closegame", "!opengame"].includes(command)) {
+                "!closequeue", "!closegame", "!opengame", "!npcs"].includes(command)) {
     game.handleModCommand(command, arg, isMod);
   }
 }

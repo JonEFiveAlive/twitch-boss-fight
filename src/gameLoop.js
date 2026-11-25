@@ -1,10 +1,11 @@
-const { createFight, addPlayer, bossHpForParty, variantForParty, resolveRound } = require("./fight");
+const { createFight, addPlayer, bossHpForParty, variantForParty, raidTierFor, resolveRound } = require("./fight");
 const { chooseBossMove, describeMove, moveTitle } = require("./bossMoves");
 const { BOSS_IDS, BOSS_INFO, bossName, bossDisplay, findBoss } = require("./bosses");
 const { AURAS, TRACKS, awardMessage, matchName } = require("./achievements");
 const { xpForFight } = require("./progress");
 const { playerPower } = require("./power");
 const { rollDrop, makeItem, lootEligible, gearBonuses } = require("./loot");
+const { isNpcId, npcAlliesFor, npcPower, npcAction } = require("./npc");
 const {
   CLASSES,
   ENDED_PAUSE_SECONDS,
@@ -17,7 +18,6 @@ const {
   RAID_VOTE_SHARE,
   RAID_CLEAR_BONUS_CHESTS,
   RAID_CHEST_LUCK_STEP,
-  RAID_TIERS,
   XP_SPEED_BONUS_PER_ROUND,
   MAX_ACTIVE_FIGHTERS,
   REVIVE_WINDOW_ROUNDS,
@@ -29,7 +29,10 @@ const {
   RESULTS_MS_PER_EVENT,
   LOBBY_JOIN_SECONDS,
   MANUAL_START_DEFAULT,
-  GAME_OPEN_ON_START
+  GAME_OPEN_ON_START,
+  NPC_ALLIES_DEFAULT,
+  NPC_ONLY_INPUT_SECONDS,
+  NPC_REVIVE_GRACE_ROUNDS
 } = require("./gameConfig");
 
 const TARGETED_ACTIONS = ["heal", "revive"];
@@ -107,6 +110,8 @@ function createGameLoop(io, { fetchAvatar = null, store = null, announce = () =>
   // and the last battle ends (!closequeue, and !closegame, which also empties the queue).
   let manualStart = MANUAL_START_DEFAULT;
   let lastCall = false;
+  // NPC allies fill out small parties (see npc.js); !npcs on / !npcs off.
+  let npcAllies = NPC_ALLIES_DEFAULT;
   let rosterNotes = [];
   // The results / intermission / raid-summary data of the timed screen on show, kept in
   // every broadcast until it ends — otherwise a !join or avatar update mid-screen
@@ -132,13 +137,18 @@ function createGameLoop(io, { fetchAvatar = null, store = null, announce = () =>
             variant: fight.variant,
             bossId: fight.bossId,
             bossName: bossName(fight.bossId, fight.variant),
-            players: fight.players
+            players: fight.players,
+            // Every player is down and an NPC Cleric has this many rounds to revive one.
+            reviveGrace: reviveGrace()
           }
         : null,
       // The announced move for the round being chosen ({ id, targetIds? }), else null.
       nextMove: fight?.nextMove ?? null,
       joinedUsers: Array.from(joinedUsers),
       joinedClasses: { ...joinedClasses },
+      // In the lobby: the NPC allies this party would get ([{ id, name, classId }]).
+      npcAllies: phase === "lobby" ? lobbyAllies().map(({ id, name, classId }) => ({ id, name, classId })) : [],
+      npcAlliesOn: npcAllies,
       // In the lobby: the boss this party would face if the fight started now,
       // plus each class's stats and commands for the lobby's class cards.
       // (A raid lobby previews battle 1, which is scaled by its stage.)
@@ -210,18 +220,41 @@ function createGameLoop(io, { fetchAvatar = null, store = null, announce = () =>
     return { power: playerPower(levelOf(userId, classId), gear.power), defense: gear.defense };
   }
 
-  // The lobby's roster in createFight's shape: [{ id, name, classId, power, defense }].
-  function lobbyRoster() {
+  // The lobby's players in createFight's shape: [{ id, name, classId, power, defense }].
+  function lobbyPlayers() {
     return Array.from(joinedUsers).map(id => ({
       id, name: playerNames[id], classId: joinedClasses[id], ...combatStats(id, joinedClasses[id])
     }));
   }
 
+  // The NPC allies the lobby's players would get (none while NPCs are switched off).
+  function lobbyAllies() {
+    return npcAllies ? npcAlliesFor(lobbyPlayers()) : [];
+  }
+
+  // The full lobby roster a battle would start with: players, then NPC allies.
+  function lobbyRoster() {
+    return [...lobbyPlayers(), ...lobbyAllies()];
+  }
+
+  // { name, roundsLeft } while every player is down and an NPC Cleric may revive one.
+  function reviveGrace() {
+    if (!fight?.wipeRounds) return null;
+    const reviver = Object.values(fight.players).find(p => p.npc && p.alive && p.classId === "cleric");
+    return reviver ? { name: reviver.name, roundsLeft: NPC_REVIVE_GRACE_ROUNDS + 1 - fight.wipeRounds } : null;
+  }
+
+  // Players (not NPCs) still standing in the fight.
+  function livingPlayers() {
+    return Object.keys(fight?.players ?? {}).filter(id => fight.players[id].alive && !fight.players[id].npc);
+  }
+
   // [userId, classId] for every visible player: the class they're playing or queued as.
+  // NPCs have no level, gear or awards, so they're left out.
   function visibleClasses() {
     const pairs = Object.entries(joinedClasses);
     for (const q of queue) pairs.push([q.userId, q.classId]);
-    for (const [id, p] of Object.entries(fight?.players ?? {})) pairs.push([id, p.classId]);
+    for (const [id, p] of Object.entries(fight?.players ?? {})) if (!p.npc) pairs.push([id, p.classId]);
     return pairs;
   }
 
@@ -356,15 +389,6 @@ function createGameLoop(io, { fetchAvatar = null, store = null, announce = () =>
     return lineup;
   }
 
-  // The raid tier for a roster (see RAID_TIERS): by average power, but always Normal
-  // for a party without a Cleric (it faces Lesser bosses).
-  function raidTierFor(roster) {
-    const normal = RAID_TIERS[RAID_TIERS.length - 1];
-    if (!roster.length || variantForParty(roster) === "lesser") return normal;
-    const avg = roster.reduce((sum, r) => sum + r.power, 0) / roster.length;
-    return RAID_TIERS.find(t => avg >= t.minAvgPower) ?? normal;
-  }
-
   // No game running: no lobby, no fight, nothing counting down, until !opengame.
   function enterClosed() {
     phase = "closed";
@@ -434,10 +458,11 @@ function createGameLoop(io, { fetchAvatar = null, store = null, announce = () =>
       return;
     }
     if (mode === "raid") {
-      // Lock the roster and classes for the whole raid.
+      // Lock the roster and classes for the whole raid, NPC allies included.
       raid = {
         stage: 1, cleared: 0, totals: {}, levels: {},
         members: Array.from(joinedUsers).map(id => ({ id, classId: joinedClasses[id] })),
+        npcs: lobbyAllies().map(({ id, name, classId }) => ({ id, name, classId })),
         lineup: raidLineup ?? makeRaidLineup(),
         tier: raidTierFor(lobbyRoster())
       };
@@ -458,20 +483,31 @@ function createGameLoop(io, { fetchAvatar = null, store = null, announce = () =>
     fightStats = {};
     rosterNotes = [];
     screenExtra = {};
-    for (const id of Object.keys(fight.players)) initStats(id);
+    // NPCs earn nothing, so they get no tallies; their names go where the overlay looks.
+    for (const [id, p] of Object.entries(fight.players)) {
+      if (p.npc) playerNames[id] = p.name;
+      else initStats(id);
+    }
 
-    const count = roster.length;
+    const allies = roster.filter(r => r.npc);
+    const count = roster.length - allies.length;
     const name = titleCase(bossName(fight.bossId, fight.variant));
+    const joinedBy = allies.length && (!raid || raid.stage === 1)
+      ? ` NPC ${allies.length === 1 ? "ally" : "allies"} ${allies.map(a => `${a.name} (${CLASS_NAMES[a.classId]})`).join(" and ")} ${allies.length === 1 ? "joins" : "join"} in.`
+      : "";
     announce(raid
-      ? `⚔ ${raid.stage === RAID_LENGTH ? "Final raid battle" : `Raid battle ${raid.stage}/${RAID_LENGTH}`}: the ${name} appears!`
-      : `⚔ The ${name} appears! ${count} ${count === 1 ? "hero steps" : "heroes step"} up to fight.`);
+      ? `⚔ ${raid.stage === RAID_LENGTH ? "Final raid battle" : `Raid battle ${raid.stage}/${RAID_LENGTH}`}: the ${name} appears!${joinedBy}`
+      : `⚔ The ${name} appears! ${count} ${count === 1 ? "hero steps" : "heroes step"} up to fight.${joinedBy}`);
     startInputPhase();
   }
 
   // The raid's locked roster, rebuilt for the next battle (fallen raiders return;
-  // levels gained mid-raid count).
+  // levels gained mid-raid count, for the NPC allies too).
   function raidRoster() {
-    return raid.members.map(({ id, classId }) => ({ id, name: playerNames[id], classId, ...combatStats(id, classId) }));
+    const players = raid.members.map(({ id, classId }) => ({ id, name: playerNames[id], classId, ...combatStats(id, classId) }));
+    if (!players.length) return players;
+    const power = npcPower(players);
+    return [...players, ...raid.npcs.map(n => ({ ...n, power, defense: 0, npc: true }))];
   }
 
   function startNextRaidBattle() {
@@ -498,13 +534,16 @@ function createGameLoop(io, { fetchAvatar = null, store = null, announce = () =>
 
   // Tallies a resolved round into fightStats (before roster changes remove anyone).
   // roundsAlive (rounds a player could act) is the base for loot participation.
+  // NPCs have no tallies and are skipped.
   function trackRoundStats(events, aliveAtStart) {
     for (const id of aliveAtStart) {
+      if (!statsFor(id)) continue;
       statsFor(id).roundsAlive += 1;
       if (pendingActions[id]) statsFor(id).roundsActive += 1;
       if (!fight.players[id].alive) statsFor(id).kos += 1;
     }
     for (const e of events) {
+      if (!e.userId || !statsFor(e.userId)) continue;
       if (e.type === "player_attack") {
         statsFor(e.userId).damage += e.damageToBoss;
         if (e.bold) statsFor(e.userId).daringHits += 1;
@@ -667,6 +706,16 @@ function createGameLoop(io, { fetchAvatar = null, store = null, announce = () =>
     fight.nextMove = chooseBossMove(fight);
     upcomingMoveLabel = describeMove(fight.nextMove, fight);
 
+    // NPCs answer the announced move straight away.
+    for (const [id, p] of Object.entries(fight.players)) {
+      if (!p.npc || !p.alive) continue;
+      const { type, targetId } = npcAction(fight, id, fight.nextMove);
+      pendingActions[id] = type;
+      if (targetId) pendingTargets[id] = targetId;
+    }
+    // With only NPCs standing nobody is typing: a short round, just long enough to watch.
+    if (!livingPlayers().length) countdownSecondsLeft = NPC_ONLY_INPUT_SECONDS;
+
     broadcastState();
 
     clearInterval(countdownTimer);
@@ -807,8 +856,16 @@ function createGameLoop(io, { fetchAvatar = null, store = null, announce = () =>
   // display name — with or without "@", exact first, then a unique prefix, then a
   // unique partial match ("!heal mel" → Melody). Ambiguous or unknown → null, which
   // falls back to auto-targeting. Liveness is checked at resolution.
+  // The whole argument is tried first (NPC names have spaces: "!heal sister wren"),
+  // then just its first word, so extra words never lose the target: players add
+  // them to dodge Twitch's 30-second duplicate-message filter ("!heal 2 again").
   function findTargetId(userId, arg) {
     if (!arg) return null;
+    const words = arg.trim().split(/\s+/);
+    return matchTarget(userId, words.join(" ")) ?? (words.length > 1 ? matchTarget(userId, words[0]) : null);
+  }
+
+  function matchTarget(userId, arg) {
     const query = arg.replace(/^@/, "").toLowerCase();
     if (query === "self" || query === "me") return userId;
 
@@ -1041,8 +1098,9 @@ function createGameLoop(io, { fetchAvatar = null, store = null, announce = () =>
       removed = true;
       if (phase !== "intermission") {
         rosterNotes.push(`${name} ${note}`);
-        // Nobody left to fight: call the battle off rather than play it out empty.
-        if (battleUnderway() && Object.keys(fight.players).length === 0) {
+        // No players left to fight (NPCs don't count): call the battle off rather than
+        // play it out empty.
+        if (battleUnderway() && !Object.values(fight.players).some(p => !p.npc)) {
           endBattleNow();
           return true;
         }
@@ -1222,6 +1280,16 @@ function createGameLoop(io, { fetchAvatar = null, store = null, announce = () =>
         announce(bossId ? `👁 The next skirmish will be against the ${titleCase(BOSS_INFO[bossId].name)}.`
           : "👁 The next skirmish's boss will be random.");
       }
+      broadcastState();
+    } else if (command === "!npcs") {
+      // NPC allies on or off from the next battle (one in progress keeps its allies).
+      if (arg !== "on" && arg !== "off") return;
+      const on = arg === "on";
+      if (npcAllies === on) return;
+      npcAllies = on;
+      announce(on
+        ? "🤝 NPC allies are on: a party of one or two gets NPCs for the classes it's missing."
+        : "🤝 NPC allies are off: from the next battle, only players fight.");
       broadcastState();
     } else if (command === "!kick") {
       const userId = findListedUser(arg);

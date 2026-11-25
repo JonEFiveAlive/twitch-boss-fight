@@ -35,7 +35,10 @@ Ember Golem, Shadow Lich, Storm Roc — each with a signature move, an elemental
 weakness/resistance and its own biome; random skirmish boss with a mod's
 `!boss` override; mixed-boss raids with Normal/Heroic/Mythic tiers) is
 implemented and awaiting playtest, as are **awards** (ten tracks of tiered
-titles, name-plate frames, legendary auras; `!titles` / `!title` / `!aura`). The
+titles, name-plate frames, legendary auras; `!titles` / `!title` / `!aura`) and
+**NPC allies** (scripted Cleric/Tank/Mage fill-ins for parties of one or two;
+`!npcs on|off`). A spectator crowd meter where chat cheers with emotes (not
+`!cheer`) is the likely next feature. The
 next big phase is the Phase 9 companion app. The full chat command reference is in
 README.md ("Chat commands"); README screenshots live in docs/images/.
 Manual equipping waits for the Phase 9 companion app. See `twitch-boss-fight-plan.md` for the full phase list, plus the
@@ -75,6 +78,12 @@ src/
                      name-plate frame, legendary tiers unlock auras. Pure data +
                      helpers; progress.js stores earned tiers (schema v3) and the
                      gameLoop announces them and handles !titles / !title / !aura.
+  npc.js           - NPC allies: npcAlliesFor() picks who fills in for a party of
+                     one or two, npcAction() plays them (the balance sim's
+                     sensibleAction, shared from here, plus a worst-case lethal
+                     check). Pure functions; fight.js flags them (`npc`) and
+                     runs the revive grace, the gameLoop adds them and feeds
+                     their commands in when each round opens.
   power.js         - playerPower(level, gearPower): the one multiplier that turns
                      progression into strength (max HP, damage, healing) and
                      sizes the boss.
@@ -89,6 +98,10 @@ src/
                      Like fight.js, no Twitch/Socket.IO dependencies. The DB
                      lives in data/ (gitignored); --offline uses a separate
                      data/offline.db so fake chatters never touch real profiles.
+  chatCommands.js  - parses chat messages: command aliases (!a/!atk, !d/!def,
+                     !h; single letters are reserved for those basics) and
+                     stripping the invisible characters chat clients add to
+                     dodge Twitch's 30-second duplicate filter. Pure functions.
   server.js        - wires everything together: Express static server for the
                      overlay, Socket.IO, and the tmi.js Twitch chat listener.
                      Also owns the OAuth refresh-token flow (see twitchAuth.js).
@@ -158,6 +171,16 @@ public/
   veterans find extra challenge. Gear's **defense** is the exception that does
   reduce relative danger — it's the reward for grinding loot, so keep defense a
   separate stat rather than folding it into power.
+- **NPC allies are help, never a substitute for players.** They're weaker
+  (`NPC_POWER_SHARE` of the players' average power), earn nothing, step aside
+  when players fill the party, and mind their own survival (defend, or a
+  Cleric heals itself, whenever the announced move could kill them). They're
+  better than most chat but fallible: `NPC_ERROR_RATE` slips ignore the warning
+  and can be fatal, except while a revive is at stake (a Cleric NPC about to
+  revive, or the grace when it's the last hope). Every player down is a loss
+  unless an NPC Cleric stands, which gets `NPC_REVIVE_GRACE_ROUNDS` short rounds
+  to revive someone. Raids with NPCs top out at `NPC_RAID_TIER_CAP` (Heroic).
+  Asked for 2026-11-22 after solo playtests felt empty.
 - **Missing/no input defaults to "defend"**, not "attack" — a deliberate safer
   default for players who don't respond in time.
 - Damage/HP/timer numbers are placeholders meant to be tuned via

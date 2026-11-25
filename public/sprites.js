@@ -104,23 +104,35 @@ const ICONS = {
   heal:   '<rect x="6" y="2" width="4" height="12"/><rect x="2" y="6" width="12" height="4"/>',
   fire:   '<rect x="7" y="1" width="2" height="3"/><rect x="5" y="4" width="6" height="3"/><rect x="4" y="7" width="8" height="5"/><rect x="5" y="12" width="6" height="2"/>',
   taunt:  '<rect x="6" y="1" width="4" height="9"/><rect x="6" y="12" width="4" height="3"/>',
-  revive: '<rect x="7" y="2" width="2" height="10"/><rect x="5" y="4" width="6" height="2"/><rect x="3" y="6" width="2" height="2"/><rect x="11" y="6" width="2" height="2"/><rect x="3" y="13" width="10" height="2"/>'
+  revive: '<rect x="7" y="2" width="2" height="10"/><rect x="5" y="4" width="6" height="2"/><rect x="3" y="6" width="2" height="2"/><rect x="11" y="6" width="2" height="2"/><rect x="3" y="13" width="10" height="2"/>',
+  // Hex status: a solid skull (the ☠ text glyph was a thin outline, hard to see).
+  // Eye sockets, nose and tooth gaps are punched out in a fixed dark color.
+  hex:    '<rect x="5" y="2" width="6" height="1"/><rect x="4" y="3" width="8" height="1"/><rect x="3" y="4" width="10" height="6"/>' +
+          '<rect x="4" y="10" width="8" height="1"/><rect x="5" y="11" width="6" height="1"/>' +
+          '<rect x="5" y="12" width="1" height="2"/><rect x="7" y="12" width="2" height="2"/><rect x="10" y="12" width="1" height="2"/>' +
+          '<rect x="5" y="6" width="2" height="3" fill="#1a0f2e"/><rect x="9" y="6" width="2" height="3" fill="#1a0f2e"/><rect x="7" y="9" width="2" height="1" fill="#1a0f2e"/>'
 };
 
 const rectSvg = ([x, y, w, h, fill]) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}"/>`;
 
 /** look: { slot: rarity } for the player's equipped gear (optional). */
+// Parts starting at or below this row are legs/feet. The sprite is drawn as two groups,
+// legs first, so the battlefield's idle can drop the upper body a whole pixel onto
+// planted legs (see .sprite-upper in overlay.css) instead of stretching the art.
+const LEG_ROW = 12;
+
 function spriteSvg(name, size, look = {}) {
   const parts = SPRITE_PARTS[name] ?? SPRITE_PARTS.tank;
-  let body = parts
-    .map(([x, y, w, h, fill, slot, tone = "main"]) => rectSvg([x, y, w, h, RARITY_TONES[look[slot]]?.[tone] ?? fill]))
-    .join("");
+  const draw = ([x, y, w, h, fill, slot, tone = "main"]) => rectSvg([x, y, w, h, RARITY_TONES[look[slot]]?.[tone] ?? fill]);
+  const legs = parts.filter(p => p[1] >= LEG_ROW).map(draw).join("");
+  let upper = parts.filter(p => p[1] < LEG_ROW).map(draw).join("");
   for (const [slot, extras] of Object.entries(RARE_EXTRAS[name] ?? {})) {
-    if (look[slot] === "rare" || look[slot] === "epic") body += extras.map(rectSvg).join("");
+    if (look[slot] === "rare" || look[slot] === "epic") upper += extras.map(rectSvg).join("");
   }
   const glow = TRINKET_GLOW[look.trinket];
   const style = glow ? ` style="filter: drop-shadow(0 0 ${Math.max(2, Math.round(size / 14))}px ${glow})"` : "";
-  return `<svg width="${size}" height="${size}" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"${style}>${body}</svg>`;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"${style}>` +
+    `<g class="sprite-legs">${legs}</g><g class="sprite-upper">${upper}</g></svg>`;
 }
 
 // Bosses (32x28 grid), facing the party on the right. Placeholder art like the rest.

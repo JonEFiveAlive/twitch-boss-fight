@@ -58,6 +58,19 @@ Parties without a Cleric face a gentler **Lesser** boss, and parties of
 seasoned players face a **Powerful** one with extra targets and an earlier
 enrage.
 
+### NPC allies
+
+The game is made for a crowd, but a quiet stream still gets a real fight. When a
+battle starts with only one or two players, NPC allies fill in the classes the
+party is missing (a Cleric first) until there are three: Sister Wren the Cleric,
+Old Brannoc the Tank and Pell the Mage. They're drawn see-through with an ALLY
+tag, are a little weaker than a player, and earn nothing. They read the boss's
+warnings and dodge hits that could kill them, though now and then they slip up
+like anyone in chat. If every player falls while Sister Wren is still standing,
+she gets three quick rounds (no slip-ups) to revive someone before the fight is
+lost. Raids with NPC allies go up to Heroic tier, not Mythic. Mods can turn them
+off with `!npcs off`.
+
 ### Progression and loot
 
 - **XP and levels per class.** Every round you act earns XP, win or lose; wins
@@ -120,7 +133,8 @@ Phases 1–8 of the project are built:
 - raids
 - multiple bosses with raid tiers
 
-Phase 8 (the new bosses and raid tiers) is awaiting playtesting.
+Phase 8 (the new bosses and raid tiers), awards and NPC allies are awaiting
+playtesting.
 
 Still to come:
 
@@ -250,14 +264,20 @@ The lobby counts down 20 seconds after the first `!join`, then the battle starts
 | --- | --- |
 | `!join [tank\|mage\|cleric]` | Join the lobby (or the queue, if a fight is on or the party is full). Plain `!join` picks the class the party needs; joining again in the lobby switches class. |
 | `!leave` (or `!flee`) | Drop out of the lobby or queue, or flee the fight in progress. XP for rounds already fought is kept; a raider who leaves forfeits the raid's chests. |
-| `!attack`, `!defend` | Everyone. |
+| `!attack` (`!a`, `!atk`), `!defend` (`!d`, `!def`) | Everyone. |
 | `!taunt` | Tank: take the boss's targeted strike and shield the party. |
 | `!fire` | Mage: big damage, costs MP. |
-| `!heal [slot / name / self]`, `!revive [slot / name]` | Cleric. With no target, heals go to whoever needs it most (burning or hexed players first). |
+| `!heal [slot / name / self]` (`!h`), `!revive [slot / name]` | Cleric. With no target, heals go to whoever needs it most (burning or hexed players first). |
 | `!raidvote` | Vote to make this lobby a raid (only while a mod has voting on). |
 | `!titles` | The bot lists the titles and auras you've earned (once per 30 seconds per viewer). |
 | `!title <name>` / `!title off` / `!title auto` | Show one of your titles (part of the name is enough), none, or your best one (the default). |
 | `!aura <name>` / `!aura off` / `!aura auto` | Same for your aura. |
+
+Twitch won't post the same message twice within 30 seconds, and rounds are shorter
+than that. To repeat an action, switch between its forms (`!attack`, `!a`, `!atk`) or
+add anything after it: `!taunt 1`, `!taunt 2`, `!heal 3 again`. Words after a command
+are ignored, except a heal or revive target, which is read from the start. The invisible
+character Chatterino and 7TV add to repeated messages is ignored too.
 
 ### Mod / broadcaster commands
 
@@ -276,12 +296,13 @@ The lobby counts down 20 seconds after the first `!join`, then the battle starts
 | `!closequeue` | Last call: no new joins, but everyone already in the lobby or queue still gets to play. Once the queue is empty and the last battle ends, the game closes. |
 | `!closegame` | Close now: no new joins and the queue is cleared. An open lobby closes immediately; a fight or raid in progress plays out first (`!endbattle` to stop it now). |
 | `!opengame` | Reopen: starts a fresh lobby when closed, or cancels a last call / pending close. |
+| `!npcs on` / `!npcs off` | NPC allies for parties of one or two players (on by default), from the next battle. |
 
 While the game is closed, the overlay shows a "The Wyrm Sleeps" card with the
 leaderboard and `!join` is ignored. To have the server start closed (so nothing
 runs before you go live), set `GAME_OPEN_ON_START: false` in
 `src/gameConfig.js`; `MANUAL_START_DEFAULT: true` likewise starts in manual
-mode. Changes made with chat commands reset to these defaults when the server
+mode, and `NPC_ALLIES_DEFAULT: false` starts with NPC allies off. Changes made with chat commands reset to these defaults when the server
 restarts.
 
 ---
@@ -318,6 +339,7 @@ src/
   loot.js         gear drops
   progress.js     SQLite persistence: XP, levels, stats, items, awards
   achievements.js award tracks, titles and auras
+  npc.js          NPC allies: who fills in and how they play
   server.js       web server, Socket.IO and the Twitch chat connection
   twitchAuth.js   access-token refresh
   devChat.js      offline mode's fake chat

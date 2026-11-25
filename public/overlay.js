@@ -36,14 +36,18 @@ const KO_INTENT   = { icon: null, text: "KO",    short: "KO", color: "#8888b8", 
 const IDLE_INTENT = { icon: null, text: "IDLE?", short: "?",  color: "#ffb070", target: "" };
 const CLASS_LABELS = { tank: "TANK", mage: "MAGE", cleric: "CLERIC" };
 const CLASS_NAMES  = { tank: "Tank", mage: "Mage", cleric: "Cleric" };
+// Marks NPC allies (see src/npc.js), whose sprites are also drawn see-through.
+const ALLY_TAG = `<span class="ally-tag">ALLY</span>`;
 const QUEUE_NAMES_SHOWN = 4;
 const TARGETED_ACTIONS = ["heal", "revive"];
 
 const COMMAND_HELP = [
-  "Everyone: !attack · !defend · !leave to drop out",
+  "Everyone: !attack (!a) · !defend (!d) · !leave",
   "Tank: !taunt — take strikes for the party",
   "Mage: !fire — big damage, costs MP",
-  "Cleric: !heal [# / name / self] · !revive [# / name]"
+  "Cleric: !heal (!h) [#/name] · !revive [#/name]",
+  // Twitch rejects a repeat of the same message within 30 seconds (see chatCommands.js).
+  "Repeat blocked? Add a word: !taunt 1, !taunt 2"
 ];
 
 // Boss animations per move kind (the move names come from the server, per boss).
@@ -55,7 +59,13 @@ const TARGETED_MOVES = new Set(["strike", "chain", "curse"]);
 // Each boss element's color for its hits; damage types for weakness chips.
 const ELEMENT_COLORS = { ice: "#bfe6ff", fire: "#ff9a3d", shadow: "#c39bff", storm: "#fff27a" };
 const DAMAGE_TYPE_LABELS = { physical: "PHYSICAL", fire: "FIRE", holy: "HOLY" };
+// Text icons, for floating numbers; on the battlefield and status window use statusIconHtml.
 const STATUS_ICONS = { burn: "🔥", curse: "☠" };
+
+// Burn is a colour emoji; Hex is a solid pixel skull (the ☠ glyph is a thin outline).
+function statusIconHtml(status, size) {
+  return status === "curse" ? `<span class="st-icon curse">${iconSvg("hex", size)}</span>` : STATUS_ICONS[status];
+}
 
 // Above this many players: smaller battlefield sprites and a two-column status window.
 const COMPACT_PARTY_SIZE = 5;
@@ -163,6 +173,87 @@ function showBossHits(hits, color) {
 let currentBoss = null;
 const bossColor = () => ELEMENT_COLORS[currentBoss?.element] ?? "#ff4444";
 
+// ─── Battle effects: projectiles, slashes and bursts ────────────────────────
+// Like floating numbers, these are absolutely positioned in the arena and remove
+// themselves when done. Timings fit inside the existing step budgets above.
+const PROJECTILE_MS = 260;      // a player's bolt / heal in flight
+const BOSS_PROJECTILE_MS = 230; // a boss projectile in flight
+const LAUNCH_DELAY_MS = 90;     // into the caster's lunge before the bolt leaves
+
+// An element's point in arena coordinates (yFraction: how far down it).
+function arenaPoint(el, yFraction = 0.45) {
+  const arenaRect = arenaEl.getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  return { x: r.left - arenaRect.left + r.width / 2, y: r.top - arenaRect.top + r.height * yFraction };
+}
+
+function spawnFx(className, { x, y }, color) {
+  const el = document.createElement("div");
+  el.className = `fx ${className}`;
+  el.style.left = `${x}px`;
+  el.style.top  = `${y}px`;
+  if (color) el.style.setProperty("--fx", color);
+  arenaEl.appendChild(el);
+  return el;
+}
+
+// A ring that pops where something lands.
+function burstAt(point, color) {
+  const el = spawnFx("burst", point, color);
+  el.addEventListener("animationend", () => el.remove());
+}
+
+// A blade streak across a target (melee hits, the boss's swipes and counters).
+function slashAt(targetEl, color, length = 70) {
+  if (!targetEl) return;
+  const el = spawnFx("slash", arenaPoint(targetEl), color);
+  el.style.setProperty("--len", `${length}px`);
+  el.addEventListener("animationend", () => el.remove());
+}
+
+// A bolt flies from one element to another on a slight arc, then bursts.
+// kind: "orb" (glowing ball with a tail), "zap" (lightning streak), "hex" (skull).
+function launchProjectile(fromEl, toEl, { color, size = 12, ms = PROJECTILE_MS, arc = 30, kind = "orb" } = {}) {
+  if (!fromEl || !toEl) return;
+  const from = arenaPoint(fromEl);
+  const to = arenaPoint(toEl);
+  const el = spawnFx(`projectile ${kind}`, from, color);
+  el.style.setProperty("--size", `${size}px`);
+  if (kind === "hex") el.innerHTML = iconSvg("hex", size);
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const turn = `rotate(${Math.atan2(dy, dx)}rad)`;
+  const spin = kind === "hex" ? "" : turn; // the skull stays upright
+  const anim = el.animate([
+    { transform: `translate(-50%, -50%) ${spin}` },
+    { transform: `translate(calc(-50% + ${dx / 2}px), calc(-50% + ${dy / 2 - arc}px)) ${spin}` },
+    { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) ${spin}` }
+  ], { duration: ms, easing: "ease-in" });
+  anim.onfinish = () => { el.remove(); burstAt(to, color); };
+}
+
+// A heal or revive flies from the Cleric to its target (a self-heal just glows).
+// Resolves at the moment it lands; returns that time (ms since the step began).
+async function sendSupport(event, color) {
+  if (event.targetId === event.userId) {
+    await sleep(220);
+    return 220;
+  }
+  await sleep(LAUNCH_DELAY_MS);
+  launchProjectile(spriteOf(event.userId), spriteOf(event.targetId), { color, size: 12, arc: 44 });
+  await sleep(PROJECTILE_MS);
+  return LAUNCH_DELAY_MS + PROJECTILE_MS;
+}
+
+// What a player's attack looks like in flight; null for a melee swing (the Tank).
+function attackProjectile(event, classId) {
+  if (event.skill === "fire")   return { color: "#ff8a2a", size: 20, arc: 36 };
+  if (event.skill === "fizzle") return { color: "#c08a5a", size: 8, arc: 12 };
+  if (classId === "mage")       return { color: "#b48cff", size: 13 };
+  if (classId === "cleric")     return { color: "#ffe08a", size: 13 };
+  return null;
+}
+
 async function runResolutionSequence(events, generation) {
   bossSpriteEl.classList.remove("anim-boss-pulse"); // clear the warning pulse
 
@@ -170,8 +261,20 @@ async function runResolutionSequence(events, generation) {
     if (generation !== sequenceGeneration) return; // newer render superseded this
 
     if (event.type === "player_attack") {
-      addAnim(unitMap.get(event.userId), "anim-lunge");
-      await sleep(220);
+      // Spells and the Cleric's holy strike fly to the boss; the Tank's sword slashes it.
+      const attacker = unitMap.get(event.userId);
+      const bolt = attackProjectile(event, attacker?.dataset.classId);
+      addAnim(attacker, "anim-lunge");
+      let impactAt = 220;
+      if (bolt) {
+        await sleep(LAUNCH_DELAY_MS);
+        launchProjectile(spriteOf(event.userId), bossSpriteEl, bolt);
+        await sleep(PROJECTILE_MS);
+        impactAt = LAUNCH_DELAY_MS + PROJECTILE_MS;
+      } else {
+        await sleep(impactAt);
+        slashAt(bossSpriteEl, "#e8f0ff", 110);
+      }
       if (generation !== sequenceGeneration) return;
       addAnim(bossSpriteEl, "anim-boss-shake");
       // Daring hits (through a counter / into a power attack) pop in gold with a "!".
@@ -184,22 +287,22 @@ async function runResolutionSequence(events, generation) {
                   : "#ff4444";
       const mark = event.bold ? "!" : event.element === "weak" ? "▲" : event.element === "resist" ? "▼" : "";
       showFloatingNumber(bossSpriteEl, `-${event.damageToBoss}${mark}`, color, BOSS_NUMBER_OFFSET);
-      await sleep(PLAYER_STEP_MS - 220);
+      await sleep(PLAYER_STEP_MS - impactAt);
 
     } else if (event.type === "player_heal") {
       addAnim(unitMap.get(event.userId), "anim-lunge");
-      await sleep(220);
+      const impactAt = await sendSupport(event, "#44ff88");
       if (generation !== sequenceGeneration) return;
       const targetSprite = spriteOf(event.targetId);
       addAnim(targetSprite, "anim-heal");
       showFloatingNumber(targetSprite, `+${event.healAmount}`, "#44ff88");
       if (event.cleansed?.length) showFloatingNumber(targetSprite, "CURED", "#c8ffd8", { yFraction: 0 });
       unitMap.get(event.targetId)?.querySelector(".status-badges")?.remove();
-      await sleep(PLAYER_STEP_MS - 220);
+      await sleep(PLAYER_STEP_MS - impactAt);
 
     } else if (event.type === "player_revive") {
       addAnim(unitMap.get(event.userId), "anim-lunge");
-      await sleep(220);
+      const impactAt = await sendSupport(event, "#ffe08a");
       if (generation !== sequenceGeneration) return;
       const targetUnit = unitMap.get(event.targetId);
       const targetSprite = spriteOf(event.targetId);
@@ -211,7 +314,7 @@ async function runResolutionSequence(events, generation) {
       }
       addAnim(targetSprite, "anim-heal");
       showFloatingNumber(targetSprite, "REVIVED", "#44ff88");
-      await sleep(PLAYER_STEP_MS - 220);
+      await sleep(PLAYER_STEP_MS - impactAt);
 
     } else if (event.type === "player_defend") {
       unitMap.get(event.userId)?.classList.add("anim-shielded");
@@ -232,9 +335,21 @@ async function runResolutionSequence(events, generation) {
                  : event.type === "counter" ? "anim-boss-counter"
                  : "anim-boss-attack";
       addAnim(bossSpriteEl, anim);
-      await sleep(380);
+      // Strikes, storms, eruptions and power attacks fly to each target in the boss's
+      // element color; swipes and counters are claws that slash where they land.
+      const ranged = event.type === "boss_single" || (event.type === "boss_aoe" && event.move !== "swipe");
+      await sleep(380 - BOSS_PROJECTILE_MS);
+      if (generation !== sequenceGeneration) return;
+      if (ranged) {
+        for (const hit of event.hits) {
+          launchProjectile(bossSpriteEl, spriteOf(hit.userId),
+            { color: bossColor(), size: event.move === "power" ? 24 : 16, ms: BOSS_PROJECTILE_MS, arc: 20 });
+        }
+      }
+      await sleep(BOSS_PROJECTILE_MS);
       if (generation !== sequenceGeneration) return;
       clearShields(); // shields shatter at the moment of impact
+      if (!ranged) for (const hit of event.hits) slashAt(spriteOf(hit.userId), "#ff6060", 60);
       showBossHits(event.hits, event.move === "storm" || event.move === "eruption" ? bossColor() : "#ff4444");
       await sleep(BOSS_STEP_MS - 380);
 
@@ -243,16 +358,27 @@ async function runResolutionSequence(events, generation) {
       addAnim(bossSpriteEl, "anim-boss-attack");
       await sleep(300);
       clearShields();
+      let from = bossSpriteEl;
       for (const hit of event.hits) {
         if (generation !== sequenceGeneration) return;
+        const to = spriteOf(hit.userId);
+        launchProjectile(from, to, { color: ELEMENT_COLORS.storm, kind: "zap", size: 26, ms: 120, arc: 0 });
+        await sleep(120);
         showBossHits([hit], ELEMENT_COLORS.storm);
-        await sleep(160);
+        from = to ?? from;
+        await sleep(40);
       }
       await sleep(BOSS_STEP_MS - 300);
 
     } else if (event.type === "boss_curse") {
       addAnim(bossSpriteEl, "anim-boss-windup");
-      await sleep(300);
+      await sleep(300 - BOSS_PROJECTILE_MS);
+      for (const hit of event.hits) {
+        launchProjectile(bossSpriteEl, spriteOf(hit.userId),
+          { color: ELEMENT_COLORS.shadow, size: 22, ms: BOSS_PROJECTILE_MS, arc: 50, kind: "hex" });
+      }
+      await sleep(BOSS_PROJECTILE_MS);
+      if (generation !== sequenceGeneration) return;
       for (const hit of event.hits) {
         const sprite = spriteOf(hit.userId);
         addAnim(sprite, "anim-damage");
@@ -264,6 +390,7 @@ async function runResolutionSequence(events, generation) {
       for (const hit of event.hits) {
         const sprite = spriteOf(hit.userId);
         addAnim(sprite, "anim-damage");
+        if (sprite) burstAt(arenaPoint(sprite), hit.status === "burn" ? ELEMENT_COLORS.fire : ELEMENT_COLORS.shadow);
         showFloatingNumber(sprite, `-${hit.damage}${STATUS_ICONS[hit.status]}`,
           hit.status === "burn" ? ELEMENT_COLORS.fire : ELEMENT_COLORS.shadow);
       }
@@ -332,7 +459,9 @@ function renderPhaseMessage(state) {
       case "lobby":    phaseMessageEl.textContent = lobbyMessage(state); break;
       case "closed":   phaseMessageEl.textContent = "The game is closed for now — thanks for playing!"; break;
       case "intermission": phaseMessageEl.textContent = `Raid battle ${state.raid?.stage} cleared — catch your breath!`; break;
-      case "input":    phaseMessageEl.textContent = `Round ${state.fight?.round ?? ""} — !attack · !defend · !taunt · !fire · !heal · !revive`; break;
+      case "input":    phaseMessageEl.textContent = state.fight?.reviveGrace
+        ? `Every hero is down! ${state.fight.reviveGrace.name} has ${state.fight.reviveGrace.roundsLeft} round${state.fight.reviveGrace.roundsLeft === 1 ? "" : "s"} to revive someone...`
+        : `Round ${state.fight?.round ?? ""} — !a(ttack) · !d(efend) · !taunt · !fire · !h(eal) · !revive`; break;
       case "resolving":phaseMessageEl.textContent = "Resolving round..."; break;
       case "results":  phaseMessageEl.textContent = "Results:"; break;
       default:         phaseMessageEl.textContent = "";
@@ -341,9 +470,10 @@ function renderPhaseMessage(state) {
 
   lockedCountEl.textContent = "";
   if (state.phase === "input" && state.fight) {
-    const livingIds = Object.keys(state.fight.players).filter(id => state.fight.players[id].alive);
+    // Players only: NPC allies lock in the moment the round opens.
+    const livingIds = Object.keys(state.fight.players).filter(id => state.fight.players[id].alive && !state.fight.players[id].npc);
     const locked = livingIds.filter(id => state.pendingActions?.[id]).length;
-    lockedCountEl.textContent = `${locked} / ${livingIds.length} locked in`;
+    if (livingIds.length) lockedCountEl.textContent = `${locked} / ${livingIds.length} locked in`;
   }
 }
 
@@ -404,7 +534,7 @@ function partyEntries(state) {
   const players = state.fight?.players;
   if (players) {
     return Object.entries(players)
-      .map(([userId, player]) => ({ userId, player, slot: player.slot, classId: player.classId, alive: player.alive }))
+      .map(([userId, player]) => ({ userId, player, slot: player.slot, classId: player.classId, alive: player.alive, npc: player.npc }))
       .sort((a, b) => a.slot - b.slot);
   }
   return (state.joinedUsers || []).map((userId, i) => ({
@@ -517,7 +647,16 @@ function renderBattlefield(state, entries) {
     unit.className = "unit";
     if (!large) unit.classList.add("small");
     if (!entry.alive) unit.classList.add("fallen");
+    if (entry.npc) unit.classList.add("npc");
+    // Badly hurt: the idle bob turns into a faster, leaning sway.
+    if (entry.alive && entry.player && entry.player.hp <= entry.player.maxHp * 0.25) unit.classList.add("weary");
     activeAnims.forEach(c => unit.classList.add(c));
+    // The unit's contents are rebuilt on every update, so looping animations inside it
+    // (idle bob, aura particles) take their phase from the page clock: a negative delay
+    // of the time since load picks each loop up where it was instead of restarting it.
+    unit.style.setProperty("--clock", `${-Math.round(performance.now())}ms`);
+    unit.style.setProperty("--idle-offset", `${-(entry.slot ?? i) * 470}ms`);
+    unit.style.setProperty("--sprite-px", `${spriteSize / 16}px`); // one pixel of the 16x16 art, on screen
 
     unit.dataset.classId = entry.classId ?? "";
     unit.style.left  = `${positions[i].left}px`;
@@ -539,7 +678,7 @@ function renderBattlefield(state, entries) {
         ${statusBadgesHtml(entry.player)}
         ${healTargets.has(entry.userId) ? `<div class="heal-target-badge">✚</div>` : ""}
       </div>
-      <div class="unit-name${cos?.frame ? ` frame-${cos.frame}` : ""}"><span class="slot">${entry.slot}</span><span class="name-text">${escapeHtml(name)}</span></div>
+      <div class="unit-name${cos?.frame ? ` frame-${cos.frame}` : ""}"><span class="slot">${entry.slot}</span><span class="name-text">${escapeHtml(name)}</span>${entry.npc ? ALLY_TAG : ""}</div>
       ${large ? titleHtml(cos, "unit-title") : ""}
     `;
 
@@ -586,7 +725,7 @@ function titleHtml(cosmetics, className = "p-title") {
 function statusBadgesHtml(player) {
   if (!player?.alive || !(player.burn > 0 || player.curse > 0)) return "";
   const badge = (status) => player[status] > 0
-    ? `<span class="sb ${status}">${STATUS_ICONS[status]}<b>${player[status]}</b></span>` : "";
+    ? `<span class="sb ${status}">${statusIconHtml(status, 14)}<b>${player[status]}</b></span>` : "";
   return `<div class="status-badges">${badge("burn")}${badge("curse")}</div>`;
 }
 
@@ -604,24 +743,26 @@ function statusRowHtml(state, entry, compact) {
   const avatar = avatarUrl ? `<img class="s-avatar" src="${escapeAttr(avatarUrl)}" alt="">`
     : spriteSvg(classId, 22, state.playerGear?.[userId]);
   const intent = currentIntent(state, entry);
-  const level = state.playerLevels?.[userId] ?? 1;
-  const rowClass = player && !player.alive ? "status-row fallen" : "status-row";
-  const afflictions = player?.alive ? ["burn", "curse"].filter(st => player[st] > 0).map(st => STATUS_ICONS[st]).join("") : "";
+  const level = entry.npc ? "ALLY" : state.playerLevels?.[userId] ?? 1;
+  const rowClass = `status-row${player && !player.alive ? " fallen" : ""}${entry.npc ? " npc" : ""}`;
+  const afflictions = player?.alive ? ["burn", "curse"].filter(st => player[st] > 0).map(st => statusIconHtml(st, 16)).join("") : "";
+  // The icons sit beside the name, outside its ellipsis, so a long name can't hide them.
+  const nameCell = `<span class="s-name-cell"><span class="s-name">${name}</span>${afflictions ? `<span class="s-aff">${afflictions}</span>` : ""}</span>`;
   const hp = player ? barHtml(player.hp, player.maxHp, compact ? 56 : 100, "hp") : "";
   const mp = player?.maxMp ? barHtml(player.mp, player.maxMp, compact ? 56 : 64, "mp") : "";
   const dash = `<span style="color:var(--text-dim)">—</span>`;
 
   if (compact) {
     return `<div class="${rowClass}">
-      <span class="slot">${slot}</span>${avatar}<span class="s-name">${name}${afflictions ? ` <span class="s-aff">${afflictions}</span>` : ""}</span>
+      <span class="slot">${slot}</span>${avatar}${nameCell}
       <span class="s-lv">${level}</span>
       <div class="s-bars-stacked">${hp}${mp}</div>
       <span class="s-intent" style="color:${intent?.color ?? "inherit"}">${intent ? (intent.icon ? iconSvg(intent.icon, 14) : intent.short) : ""}</span>
     </div>`;
   }
   return `<div class="${rowClass}">
-    <span class="slot">${slot}</span>${avatar}<span class="s-name">${name}${afflictions ? ` <span class="s-aff">${afflictions}</span>` : ""}</span>
-    <span class="s-class class-${classId}">${CLASS_LABELS[classId] ?? ""}<span class="s-lv">LV ${level}</span></span>
+    <span class="slot">${slot}</span>${avatar}${nameCell}
+    <span class="s-class class-${classId}">${CLASS_LABELS[classId] ?? ""}<span class="s-lv">${entry.npc ? level : `LV ${level}`}</span></span>
     <div>${hp || dash}</div>
     <div>${mp || dash}</div>
     <span class="s-intent" style="color:${intent?.color ?? "inherit"}">${intent ? `${intent.icon ? iconSvg(intent.icon, 14) : ""}<span>${intent.text}${escapeHtml(intent.target)}</span>` : ""}</span>
@@ -717,7 +858,7 @@ const CLASS_ROLES = { tank: "Protector · melee", mage: "Damage · ranged", cler
 const SKILL_LINES = {
   taunt:  ["!taunt", "take the boss's strike, shield the party"],
   fire:   ["!fire", "big damage, costs MP"],
-  heal:   ["!heal [# / name / self]", "mend an ally"],
+  heal:   ["!heal / !h [# / name / self]", "mend an ally"],
   revive: ["!revive [# / name]", "raise the fallen"]
 };
 const VARIANT_LABELS = { lesser: "LESSER", standard: "STANDARD", powerful: "POWERFUL" };
@@ -741,6 +882,7 @@ function renderLobby(state) {
   if (state.phase !== "lobby" || !classes) return;
   const joined = state.joinedUsers ?? [];
   const names = state.playerNames ?? {};
+  const allies = state.npcAllies ?? [];
   const best = (key) => Math.max(...Object.values(classes).map(c => c[key]));
 
   const cards = Object.entries(classes).map(([classId, c]) => {
@@ -749,6 +891,9 @@ function renderLobby(state) {
       .map(a => `<span><span class="class-${classId}">${SKILL_LINES[a][0]}</span> — ${SKILL_LINES[a][1]}</span>`).join("");
     const who = members.slice(0, 4).map(id => `<span class="who">${escapeHtml(names[id] ?? id)}</span>`).join("");
     const more = members.length > 4 ? `<span>+${members.length - 4}</span>` : "";
+    const ally = allies.find(a => a.classId === classId);
+    const nobody = ally ? `<span>No one yet — NPC <span class="who">${escapeHtml(ally.name)}</span> fills in</span>`
+      : "<span>No one yet — be the first!</span>";
     return `<div class="panel class-card">
       <div class="cc-head">${spriteSvg(classId, 72)}
         <div><div class="cc-title class-${classId}">${CLASS_LABELS[classId]}</div><div class="cc-role">${CLASS_ROLES[classId] ?? ""}</div></div>
@@ -759,8 +904,8 @@ function renderLobby(state) {
         <span>DMG</span>${pipsHtml(c.expectedDamage, best("expectedDamage"), "#e8a13b")}
         <span>MP</span>${pipsHtml(c.maxMp, best("maxMp"), "#4f8fe8")}
       </div>
-      <div class="cc-skills"><span style="color:var(--gold)">!attack · !defend</span>${skills}</div>
-      <div class="cc-joined">${members.length ? `<span>${members.length} joined ·</span>${who}${more}` : "<span>No one yet — be the first!</span>"}</div>
+      <div class="cc-skills"><span style="color:var(--gold)">!attack (!a) · !defend (!d)</span>${skills}</div>
+      <div class="cc-joined">${members.length ? `<span>${members.length} joined ·</span>${who}${more}` : nobody}</div>
     </div>`;
   }).join("");
 
@@ -779,6 +924,15 @@ function renderLobby(state) {
   const max = state.rules?.maxActiveFighters ?? 10;
   const cells = Array.from({ length: max }, (_, i) => {
     const id = joined[i];
+    // After the players: the NPC allies they'd get, see-through like on the battlefield.
+    const ally = !id && allies[i - joined.length];
+    if (ally) {
+      return `<div class="roster-cell npc"><span class="slot">${i + 1}</span>
+        <div class="roster-sprite">${spriteSvg(ally.classId, 44)}</div>
+        <span class="roster-name">${escapeHtml(ally.name)}</span>
+        <span class="s-class class-${ally.classId}">${CLASS_LABELS[ally.classId]}${ALLY_TAG}</span>
+      </div>`;
+    }
     if (!id) return `<div class="roster-cell open"><span class="roster-open">${state.lastCall ? "CLOSED" : "OPEN"}</span></div>`;
     const classId = state.joinedClasses[id];
     const cos = state.playerCosmetics?.[id];
@@ -793,7 +947,9 @@ function renderLobby(state) {
   const note = queue.length
     ? `Queue ${queue.length}: ${queue.slice(0, 5).map(q => escapeHtml(names[q.userId] ?? q.userId)).join(", ")}`
     : state.lastCall ? "Last call — joins are closed · !leave to drop out"
-    : joined.length >= max ? "Party full — !join to queue" : "Plain !join picks the class the party needs · !leave to drop out";
+    : joined.length >= max ? "Party full — !join to queue"
+    : allies.length ? "NPC allies fill in for a party of one or two — join and they step aside"
+    : "Plain !join picks the class the party needs · !leave to drop out";
 
   lobbyScreenEl.innerHTML = `
     <div class="lobby-main">

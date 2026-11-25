@@ -117,7 +117,10 @@ for (const [u, c] of [["v1", "tank"], ["v2", "mage"], ["v3", "cleric"]]) {
 }
 game.handleRaidCommand("x", "!raid", true);
 game.handleJoin("v1", "V1", "tank"); game.handleJoin("v2", "V2", "mage");
-check(`raid lobby with no Cleric: tier ${state.raid.tier}`, state.raid.tier === "normal");
+check(`veterans with an NPC Cleric filling in: tier ${state.raid.tier}, capped at NPC_RAID_TIER_CAP`, state.raid.tier === cfg.NPC_RAID_TIER_CAP && state.npcAllies.some(a => a.classId === "cleric"));
+mod("!npcs", "off");
+check(`raid lobby with no Cleric (NPCs off): tier ${state.raid.tier}, ${state.projectedVariant}`, state.raid.tier === "normal" && state.projectedVariant === "lesser");
+mod("!npcs", "on");
 game.handleJoin("v3", "V3", "cleric");
 check(`raid lobby previews tier ${state.raid.tier} and lineup ${state.raid.lineup.map(b => b.name).join(" → ")}`, state.raid.tier === "mythic" && state.raid.lineup.length === 5);
 mod("!skip");

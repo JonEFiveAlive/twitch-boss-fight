@@ -133,13 +133,23 @@ check(`!endraid in intermission: ${state.raidResults?.chests} chest, no extra fi
   state.phase === "ended" && state.raidResults.chests === 1 && state.raidResults.stagesCleared === 1);
 mock.timers.tick(cfg.RAID_RESULTS_SECONDS * 1000 + 500);
 
-// Wipe: three fresh level-1 players who never act (default defend) against stage 1.
+// Wipe: three level-1 players fighting on 1 HP against stage 1. (Only attacking is
+// a valid gamble that sometimes wins, so the test doesn't rely on it losing: at
+// 1 HP any hit is a KO, so the party falls long before it can deal enough damage.)
+// state.fight.players is the live fight's player objects, so the test can set HP.
 game.handleRaidCommand("id-mod", "!raid", MOD);
 for (const n of ["A", "B", "C"]) join(n, "mage");
 game.handleForceStart(MOD);
 const wipeTeam = ["id-A", "id-B", "id-C"];
 for (let i = 0; i < 4000 && state.phase !== "ended" && state.phase !== "intermission"; i++) {
-  if (state.phase === "input") for (const id of wipeTeam) if (state.fight.players[id]?.alive) game.handleAction(id, "attack");
+  if (state.phase === "input") {
+    for (const id of wipeTeam) {
+      const p = state.fight.players[id];
+      if (!p?.alive) continue;
+      p.hp = 1;
+      game.handleAction(id, "attack");
+    }
+  }
   mock.timers.tick(250);
 }
-check(`a party that only attacks wipes: raid ${state.raidResults?.outcome}`, state.phase === "ended" && state.raidResults?.outcome === "wiped");
+check(`a party that falls wipes the raid: raid ${state.raidResults?.outcome}`, state.phase === "ended" && state.raidResults?.outcome === "wiped");
