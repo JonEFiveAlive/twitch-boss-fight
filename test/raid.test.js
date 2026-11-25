@@ -48,9 +48,12 @@ function playInput() {
     game.handleAction(id, action, arg);
   }
 }
-function runUntil(pred, maxTicks = 20000) {
+// topUp: refill HP every tick (test-only), for checks that need a battle won rather
+// than testing whether it can be — even sensible veterans lose one now and then.
+function runUntil(pred, { maxTicks = 20000, topUp = false } = {}) {
   let lastRound = null;
   for (let i = 0; i < maxTicks && !pred(); i++) {
+    if (topUp) for (const p of Object.values(state.fight?.players ?? {})) if (p.alive) p.hp = p.maxHp;
     if (state.phase === "input" && state.fight && state.fight.round !== lastRound) { playInput(); lastRound = state.fight.round; }
     mock.timers.tick(250);
   }
@@ -92,7 +95,7 @@ check(`raid lineup: ${lineup.join(", ")} (every boss once, then a rematch), tier
 join("LateViewer", "tank");
 check("a mid-raid !join waits in the queue", state.queue.some(q => q.userId === "id-LateViewer"));
 
-runUntil(() => state.phase === "intermission" || state.phase === "ended");
+runUntil(() => state.phase === "intermission" || state.phase === "ended", { topUp: true });
 check(`battle 1 cleared -> intermission, ${state.raid?.chests} chest banked, countdown ${state.countdownSecondsLeft}`,
   state.phase === "intermission" && state.raid.chests === 1 && !!state.fightResults);
 check("no per-battle loot drops in a raid", state.fightResults.players.every(p => !p.drop));
@@ -114,7 +117,7 @@ check("after the raid summary: a skirmish lobby, with the late joiner carried in
 game.handleRaidCommand("id-mod", "!raid", MOD);
 for (const [n, c] of team) join(n, c);
 game.handleForceStart(MOD);
-runUntil(() => state.phase === "intermission");
+runUntil(() => state.phase === "intermission", { topUp: true });
 game.handleForceStart(MOD);
 mock.timers.tick(3000);
 game.handleRaidCommand("id-mod", "!endraid", MOD);
@@ -127,7 +130,7 @@ mock.timers.tick(cfg.RAID_RESULTS_SECONDS * 1000 + 500);
 game.handleRaidCommand("id-mod", "!raid", MOD);
 for (const [n, c] of team) join(n, c);
 game.handleForceStart(MOD);
-runUntil(() => state.phase === "intermission");
+runUntil(() => state.phase === "intermission", { topUp: true });
 game.handleRaidCommand("id-mod", "!endraid", MOD);
 check(`!endraid in intermission: ${state.raidResults?.chests} chest, no extra fight recorded`,
   state.phase === "ended" && state.raidResults.chests === 1 && state.raidResults.stagesCleared === 1);

@@ -17,11 +17,12 @@ const join = (n, c = "mage") => game.handleJoin(`id-${n}`, n, c);
 const mod = (cmd, arg = null) => game.handleModCommand(cmd, arg, true);
 const tick = (s) => mock.timers.tick(s * 1000);
 const ids = () => Object.keys(state.fight?.players ?? {});
-// Plays rounds with everyone attacking until the phase changes to one of `phases`.
+// Plays rounds with every player attacking until the phase changes to one of `phases`.
+// NPC allies (a party of one or two gets them) are left to make their own choices.
 function playUntil(phases, maxTicks = 6000) {
   for (let i = 0; i < maxTicks && !phases.includes(state.phase); i++) {
     for (const p of Object.values(state.fight?.players ?? {})) p.hp = p.maxHp; // test-only: never wipe
-    if (state.phase === "input") for (const id of ids()) game.handleAction(id, "attack");
+    if (state.phase === "input") for (const id of ids()) if (!state.fight.players[id].npc) game.handleAction(id, "attack");
     mock.timers.tick(250);
   }
 }
@@ -69,7 +70,8 @@ check("!closegame mid-fight clears the queue and blocks joins", state.queue.leng
 join("Fay");
 check("...new joins are ignored", state.queue.length === 0);
 playUntil(["ended"]);
-check(`the battle finishes normally (${state.fightResults?.outcome})`, state.fightResults?.outcome === "win");
+// Played out to a win or a loss (a one-hit KO can still lose it), not called off ("ended").
+check(`the battle finishes normally (${state.fightResults?.outcome})`, ["win", "loss"].includes(state.fightResults?.outcome));
 tick(cfg.ENDED_PAUSE_SECONDS + 1);
 check("after the results screen: closed, not a new lobby", state.phase === "closed");
 mod("!opengame");
