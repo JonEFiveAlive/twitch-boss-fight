@@ -3,7 +3,8 @@
 A collaborative, round-based boss fight that your Twitch chat plays together.
 Viewers join a party as a Tank, Mage or Cleric and type commands like `!attack`,
 `!defend` or `!heal` in chat. Once per round the game resolves everyone's choice
-at once, and a JRPG-style battle screen shows the result on stream.
+at once, and a JRPG-style battle screen plays it out on stream: fireballs, heals
+and boss attacks fly across the battlefield, one action at a time.
 
 ![A Frost Wyrm battle in progress: party on the right, combat log and party status below](docs/images/battle.png)
 
@@ -36,8 +37,8 @@ runs on your own computer as a small Node.js server that reads your Twitch chat.
 | **Mage** | Damage | `!fire`: big damage for MP |
 | **Cleric** | Healer | `!heal [slot / name / self]`, `!revive [slot / name]` |
 
-Everyone can `!attack` and `!defend`. Defending blocks 90% of most hits and
-recovers a little HP, which keeps healer-less parties alive.
+Everyone can `!attack` and `!defend` (or just `!a` and `!d`). Defending blocks
+90% of most hits and recovers a little HP, which keeps healer-less parties alive.
 
 ### Four bosses
 
@@ -70,6 +71,8 @@ like anyone in chat. If every player falls while Sister Wren is still standing,
 she gets three quick rounds (no slip-ups) to revive someone before the fight is
 lost. Raids with NPC allies go up to Heroic tier, not Mythic. Mods can turn them
 off with `!npcs off`.
+
+![A solo Tank fighting the Shadow Lich with Sister Wren and Pell, as the boss's Hex flies toward Pell](docs/images/npc-allies.png)
 
 ### Progression and loot
 
@@ -142,8 +145,12 @@ Still to come:
   stats and inventory, and choose your gear between streams.
 - **Real pixel art.** Every sprite is placeholder art drawn in code for now.
 
-Ideas further out include a crowd-cheer meter for spectators, seasonal bosses
-and earnable titles.
+Likely next is a **crowd meter**: viewers who aren't fighting cheer the party on
+by posting emotes. Ideas further out include seasonal event bosses with
+limited-time titles.
+
+Every change that passes the tests on `main` is tagged and published on the
+[Releases page](https://github.com/JonEFiveAlive/twitch-boss-fight/releases).
 
 ---
 
@@ -157,9 +164,12 @@ and earnable titles.
   (recommended, so bot messages don't look like they're from you) a second free
   Twitch account created just for this.
 
-### 2. Install dependencies
+### 2. Get the code and install dependencies
 
-Open a terminal in the `twitch-boss-fight` folder and run:
+Download the latest release's source code from the
+[Releases page](https://github.com/JonEFiveAlive/twitch-boss-fight/releases) and
+unzip it, or clone the repository with git. Then open a terminal in the
+`twitch-boss-fight` folder and run:
 
 ```bash
 npm install
@@ -223,6 +233,9 @@ Overlay server running at http://localhost:3000/overlay.html
 Connected to Twitch chat, channel: your_channel_name
 ```
 
+If you're changing the code, `npm run dev` does the same but restarts the server
+whenever a file changes.
+
 ### 7. Add the overlay to OBS
 
 1. In OBS, add a **Browser Source**.
@@ -273,11 +286,12 @@ The lobby counts down 20 seconds after the first `!join`, then the battle starts
 | `!title <name>` / `!title off` / `!title auto` | Show one of your titles (part of the name is enough), none, or your best one (the default). |
 | `!aura <name>` / `!aura off` / `!aura auto` | Same for your aura. |
 
-Twitch won't post the same message twice within 30 seconds, and rounds are shorter
-than that. To repeat an action, switch between its forms (`!attack`, `!a`, `!atk`) or
-add anything after it: `!taunt 1`, `!taunt 2`, `!heal 3 again`. Words after a command
-are ignored, except a heal or revive target, which is read from the start. The invisible
-character Chatterino and 7TV add to repeated messages is ignored too.
+Twitch won't post the same message twice within 30 seconds, and rounds are
+shorter than that. To repeat an action, switch between its forms (`!attack`,
+`!a`, `!atk`) or add anything after it: `!taunt 1`, `!taunt 2`,
+`!heal 3 again`. Words after a command are ignored, except a heal or revive
+target, which is read from the start. The invisible character Chatterino and 7TV
+add to repeated messages is ignored too.
 
 ### Mod / broadcaster commands
 
@@ -302,8 +316,8 @@ While the game is closed, the overlay shows a "The Wyrm Sleeps" card with the
 leaderboard and `!join` is ignored. To have the server start closed (so nothing
 runs before you go live), set `GAME_OPEN_ON_START: false` in
 `src/gameConfig.js`; `MANUAL_START_DEFAULT: true` likewise starts in manual
-mode, and `NPC_ALLIES_DEFAULT: false` starts with NPC allies off. Changes made with chat commands reset to these defaults when the server
-restarts.
+mode, and `NPC_ALLIES_DEFAULT: false` starts with NPC allies off. Changes made
+with chat commands reset to these defaults when the server restarts.
 
 ---
 
@@ -323,8 +337,12 @@ node scripts/balance-sim.js --raid --only TMC       # raid clear rates
 node scripts/balance-sim.js --set BURN_DAMAGE=10    # try a value without editing the config
 ```
 
-Run the test suite with `npm test`. It plays fights, raids and stream-control
-scenarios through the real game loop in about a second.
+Run the test suite with `npm test`. It plays fights, raids, NPC allies, chat
+parsing and stream-control scenarios through the real game loop in about a
+second. GitHub Actions runs it on Node 22 and 26 for every push and pull request.
+
+To check a change to the overlay without OBS, `npm run screenshot` captures it
+with a headless browser (one-time setup: `npx playwright install chromium`).
 
 ## Project layout
 
@@ -340,17 +358,18 @@ src/
   progress.js     SQLite persistence: XP, levels, stats, items, awards
   achievements.js award tracks, titles and auras
   npc.js          NPC allies: who fills in and how they play
+  chatCommands.js chat parsing: command aliases, invisible-character cleanup
   server.js       web server, Socket.IO and the Twitch chat connection
   twitchAuth.js   access-token refresh
   devChat.js      offline mode's fake chat
 public/
   overlay.html/.css/.js   the OBS overlay (battle, lobby, results screens)
-  sprites.js              placeholder pixel art drawn as SVG
+  sprites.js              placeholder pixel art as SVG: characters, bosses, icons
 scripts/
   get-twitch-token.js     one-time OAuth setup
   balance-sim.js          balance simulator
   screenshot.js           headless overlay screenshots (npm run screenshot)
-test/                     npm test: game-loop, raid, boss and stream-control tests
+test/                     npm test (fights, raids, NPCs, gear, awards, chat...)
 ```
 
 ## Troubleshooting
@@ -370,6 +389,10 @@ test/                     npm test: game-loop, raid, boss and stream-control tes
   `http://localhost:3000/overlay.html`.
 - **Commands aren't registering:** commands are case-insensitive but must start
   the message (`!attack`, `!join mage`, `!startbattle`, ...).
+- **Twitch says "your message is identical to one you sent recently":** Twitch
+  blocks repeating a message within 30 seconds. Alternate the short forms
+  (`!a`, `!atk`, `!attack`) or add a word (`!taunt 1`, `!taunt 2`); see
+  [Player commands](#player-commands).
 
 ## License
 
